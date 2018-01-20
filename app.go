@@ -206,6 +206,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
     go removeBuyOrder(uid, stock, buyUnits, quote)
 }
 
+// in progress
 func sellOrder(w http.ResponseWriter, r *http.Request) {
     const reservationType = "sell"
     var uid string
