@@ -114,8 +114,9 @@ func queryUserStock(username string, symbol string) (string, int, error) {
 
 
 func updateUserStock(tx *sql.Tx, username string, symbol string, shares int, orderType string) (err error) {
+    var query string
     _, currentShares, err := queryUserStock(username, symbol)
-    
+
     if err != nil {
         if err == sql.ErrNoRows {
             query := "INSERT INTO stocks(username,symbol,shares) VALUES($1,$2,$3)"
@@ -133,9 +134,14 @@ func updateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
         currentShares -= shares
     }
 
-    query := "UPDATE stocks SET shares=$1 WHERE username=$2 AND symbol=$3"
-    _, err = tx.Exec(query, currentShares, username, symbol)
-
+    if currentShares > 0 {
+        query = "UPDATE stocks SET shares=$1 WHERE username=$2 AND symbol=$3"
+        _, err = tx.Exec(query, currentShares, username, symbol)
+    } else {
+        query = "DELETE FROM stocks WHERE username=$1 AND symbol=$2"
+        _, err = tx.Exec(query, username, symbol)
+    }
+    
     return
 }
 
@@ -273,62 +279,11 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
     go removeOrder(username, stock, orderType, buyUnits, quote)
 }
 
-func commitBuy(w http.ResponseWriter, r *http.Request) {
+func commitBuy(w http.ResponseWriter, r *http.Request){
     const orderType = "buy"
-    var symbol string
-    var shares int
-    var face_value float64
-
-    vars := mux.Vars(r)
-    username := vars["username"]
-    symbol, shares, face_value, err := getLastReservation(username, orderType)
-    
-    if err != nil {
-        logErr(err)
-        w.Write([]byte("Error retrieving reservation."))
-        return        
-    }
-
-    amount := float64(shares) * face_value
-
-    tx, err := db.Begin()
-    err = updateUserMoney(tx, username, amount, orderType)
-    if err != nil {
-        logErr(err)
-        tx.Rollback()
-        w.Write([]byte("Error updating user."))
-        return         
-    }
-
-    err = updateUserStock(tx, username, symbol, shares, orderType)
-    if err != nil {
-        logErr(err)
-        tx.Rollback()
-        w.Write([]byte("Error updating user stock."))
-        return         
-    }
-
-    err = removeReservation(tx, username, symbol, orderType, shares, face_value)
-    if err != nil {
-        logErr(err)
-        tx.Rollback()
-        w.Write([]byte("Error updating reservation."))
-        return         
-    }
-
-    err = tx.Commit()
-    if err != nil {
-        logErr(err)
-        tx.Rollback()
-        w.Write([]byte("Error committing transaction."))
-        return  
-    }
-
-
-    w.Write([]byte("Sucessfully comitted transaction."))
+    commitTransaction(w, r, orderType)
 }
 
-// in progress
 func sellOrder(w http.ResponseWriter, r *http.Request) {
     const orderType = "sell"
     var userShares int
@@ -378,6 +333,65 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
     go removeOrder(username, stock, orderType, userShares, quote)
 }
 
+func commitSell(w http.ResponseWriter, r *http.Request){
+    const orderType = "sell"
+    commitTransaction(w, r, orderType)
+}
+
+func commitTransaction(w http.ResponseWriter, r *http.Request, orderType string) {
+    var symbol string
+    var shares int
+    var face_value float64
+
+    vars := mux.Vars(r)
+    username := vars["username"]
+    symbol, shares, face_value, err := getLastReservation(username, orderType)
+    
+    if err != nil {
+        logErr(err)
+        w.Write([]byte("Error retrieving reservation."))
+        return        
+    }
+
+    amount := float64(shares) * face_value
+
+    tx, err := db.Begin()
+    err = updateUserMoney(tx, username, amount, orderType)
+    if err != nil {
+        logErr(err)
+        tx.Rollback()
+        w.Write([]byte("Error updating user."))
+        return         
+    }
+
+    
+    err = updateUserStock(tx, username, symbol, shares, orderType)
+    if err != nil {
+        logErr(err)
+        tx.Rollback()
+        w.Write([]byte("Error updating user stock."))
+        return         
+    }
+
+    err = removeReservation(tx, username, symbol, orderType, shares, face_value)
+    if err != nil {
+        logErr(err)
+        tx.Rollback()
+        w.Write([]byte("Error updating reservation."))
+        return         
+    }
+
+    err = tx.Commit()
+    if err != nil {
+        logErr(err)
+        tx.Rollback()
+        w.Write([]byte("Error committing transaction."))
+        return  
+    }
+
+    w.Write([]byte("Sucessfully comitted transaction."))
+}
+
 func main() {
     db = connectToDB()
     defer db.Close()
@@ -392,6 +406,7 @@ func main() {
     router.HandleFunc("/api/addUser/{username}/{money}", addUser)
     router.HandleFunc("/api/buyOrder/{username}/{stock}/{amount}", buyOrder)
     router.HandleFunc("/api/commitBuy/{username}", commitBuy)
+    router.HandleFunc("/api/commitSell/{username}", commitSell)
     router.HandleFunc("/api/sellOrder/{username}/{stock}/{amount}", sellOrder)
 
     // router.HandleFunc("/articles/{category}/{id:[0-9]+}", ArticleHandler)
