@@ -105,7 +105,7 @@ func removeReservation(uid string, stock string, reservationType string, shares 
     }
 }
 
-func removeBuyOrder(uid string, stock string, reservationType string, shares int, face_value float64){
+func removeOrder(uid string, stock string, reservationType string, shares int, face_value float64){
     time.Sleep(60 * time.Second)
     removeReservation(uid, stock, reservationType, shares, face_value)
 }
@@ -160,6 +160,8 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 func buyOrder(w http.ResponseWriter, r *http.Request) {
     var uid string
     var balance float64
+    const orderType string = "buy"
+
     vars := mux.Vars(r)
     username := vars["username"]
     stock := vars["stock"]
@@ -203,7 +205,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
     }
 
     w.Write([]byte("Buy order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-    go removeBuyOrder(uid, stock, buyUnits, quote)
+    go removeOrder(uid, stock, orderType, buyUnits, quote)
 }
 
 // in progress
@@ -254,7 +256,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
     }
 
     w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-    go removeBuyOrder(uid, stock, reservationType, buyUnits, quote)
+    go removeOrder(uid, stock, reservationType, buyUnits, quote)
 }
 
 func main() {
