@@ -133,7 +133,9 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 
 func commitBuy(w http.ResponseWriter, r *http.Request) {
 	const orderType = "buy"
-	commitTransaction(w, r, orderType)
+	var requestParams = mux.Vars(r)
+	response := dbactions.CommitTransaction(requestParams["username"], orderType)
+	w.Write(response)
 }
 
 func sellOrder(w http.ResponseWriter, r *http.Request) {
@@ -187,60 +189,9 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 
 func commitSell(w http.ResponseWriter, r *http.Request) {
 	const orderType = "sell"
-	commitTransaction(w, r, orderType)
-}
-
-func commitTransaction(w http.ResponseWriter, r *http.Request, orderType string) {
-	var symbol string
-	var shares int
-	var faceValue float64
-
-	vars := mux.Vars(r)
-	username := vars["username"]
-	symbol, shares, faceValue, err := dbactions.GetLastReservation(username, orderType)
-
-	if err != nil {
-		utils.LogErr(err)
-		w.Write([]byte("Error retrieving reservation."))
-		return
-	}
-
-	amount := float64(shares) * faceValue
-
-	tx, err := db.Begin()
-	err = dbactions.UpdateUserMoney(tx, username, amount, orderType)
-	if err != nil {
-		utils.LogErr(err)
-		tx.Rollback()
-		w.Write([]byte("Error updating user."))
-		return
-	}
-
-	err = dbactions.UpdateUserStock(tx, username, symbol, shares, orderType)
-	if err != nil {
-		utils.LogErr(err)
-		tx.Rollback()
-		w.Write([]byte("Error updating user stock."))
-		return
-	}
-
-	err = dbactions.RemoveReservation(tx, username, symbol, orderType, shares, faceValue)
-	if err != nil {
-		utils.LogErr(err)
-		tx.Rollback()
-		w.Write([]byte("Error updating reservation."))
-		return
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		utils.LogErr(err)
-		tx.Rollback()
-		w.Write([]byte("Error committing transaction."))
-		return
-	}
-
-	w.Write([]byte("Sucessfully comitted transaction."))
+	var requestParams = mux.Vars(r)
+	response := dbactions.CommitTransaction(requestParams["username"], orderType)
+	w.Write(response)
 }
 
 // func setBuyAmount(w http.ResponseWriter, r *http.Request) {

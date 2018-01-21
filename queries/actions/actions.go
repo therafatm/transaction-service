@@ -122,3 +122,49 @@ func RemoveOrder(username string, stock string, reservationType string, shares i
 		utils.LogErr(err)
 	}
 }
+
+func CommitTransaction(username string, orderType string) []byte {
+	var symbol string
+	var shares int
+	var faceValue float64
+
+	symbol, shares, faceValue, err := GetLastReservation(username, orderType)
+
+	if err != nil {
+		utils.LogErr(err)
+		return []byte("Error retrieving reservation.")
+	}
+
+	amount := float64(shares) * faceValue
+
+	tx, err := db.Begin()
+	err = UpdateUserMoney(tx, username, amount, orderType)
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return []byte("Error updating user.")
+	}
+
+	err = UpdateUserStock(tx, username, symbol, shares, orderType)
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return []byte("Error updating user stock.")
+	}
+
+	err = RemoveReservation(tx, username, symbol, orderType, shares, faceValue)
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return []byte("Error updating reservation.")
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return []byte("Error committing transaction.")
+	}
+
+	return []byte("Sucessfully comitted transaction.")
+}
