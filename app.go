@@ -55,14 +55,10 @@ func connectToDB() *sql.DB {
 }
 
 func getQuoteServerURL() string {
-    if os.Getenv("GO_ENV") == "dev" {
-        port := os.Getenv("QUOTE_SERVER_PORT")
-        host := os.Getenv("QUOTE_SERVER_HOST")
-        url := fmt.Sprintf("http://%s:%s", host, port)
-        return string(url)
-    }
-
-    return string("http://quoteserve.seng:4444")
+    port := os.Getenv("QUOTE_SERVER_PORT")
+    host := os.Getenv("QUOTE_SERVER_HOST")
+    url := fmt.Sprintf("http://%s:%s", host, port)
+    return string(url)
 }
 
 func queryQuote(username string, stock string) (body []byte, err error){
