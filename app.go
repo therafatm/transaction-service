@@ -34,14 +34,18 @@ func logErr(err error) {
 
 func connectToDB() *sql.DB {
     var (  
-        host     = "localhost"
-        port     = 5432
+        host     = os.Getenv("POSTGRES_HOST")
         user     = os.Getenv("POSTGRES_USER")
         password = os.Getenv("POSTGRES_PASSWORD")
-        dbname   = "transactions"
+        dbname   = os.Getenv("POSTGRES_DB")
     )
 
-     config := fmt.Sprintf("host=%s port=%d user=%s "+
+    port, err := strconv.Atoi(os.Getenv("DB_PORT"))
+    if err != nil{
+        logErr(err)
+    }
+
+    config := fmt.Sprintf("host=%s port=%d user=%s "+
                             "password=%s dbname=%s sslmode=disable",
                             host, port, user, password, dbname)
     
