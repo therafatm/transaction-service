@@ -17,7 +17,6 @@ import (
     _ "github.com/lib/pq"
 )
 
-const QUOTE_SERVER_PORT = 8000
 var db *sql.DB
 
 func checkErr(err error) {
@@ -34,14 +33,18 @@ func logErr(err error) {
 
 func connectToDB() *sql.DB {
     var (  
-        host     = "localhost"
-        port     = 5432
+        host     = os.Getenv("POSTGRES_HOST")
         user     = os.Getenv("POSTGRES_USER")
         password = os.Getenv("POSTGRES_PASSWORD")
-        dbname   = "transactions"
+        dbname   = os.Getenv("POSTGRES_DB")
     )
 
-     config := fmt.Sprintf("host=%s port=%d user=%s "+
+    port, err := strconv.Atoi(os.Getenv("DB_PORT"))
+    if err != nil{
+        logErr(err)
+    }
+
+    config := fmt.Sprintf("host=%s port=%d user=%s "+
                             "password=%s dbname=%s sslmode=disable",
                             host, port, user, password, dbname)
     
@@ -52,12 +55,10 @@ func connectToDB() *sql.DB {
 }
 
 func getQuoteServerURL() string {
-    if os.Getenv("GO_ENV") == "dev" {
-        port := strconv.Itoa(QUOTE_SERVER_PORT)
-        return string("http://localhost:" + port)
-    }
-
-    return string("http:quoteserve.seng:4444")
+    port := os.Getenv("QUOTE_SERVER_PORT")
+    host := os.Getenv("QUOTE_SERVER_HOST")
+    url := fmt.Sprintf("http://%s:%s", host, port)
+    return string(url)
 }
 
 func queryQuote(username string, stock string) (body []byte, err error){
