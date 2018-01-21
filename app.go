@@ -135,11 +135,11 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 	const orderType = "buy"
 	var symbol string
 	var shares int
-	var face_value float64
+	var faceValue float64
 
 	vars := mux.Vars(r)
 	username := vars["username"]
-	symbol, shares, face_value, err := dbactions.GetLastReservation(username, orderType)
+	symbol, shares, faceValue, err := dbactions.GetLastReservation(username, orderType)
 
 	if err != nil {
 		utils.LogErr(err)
@@ -147,7 +147,7 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	amount := float64(shares) * face_value
+	amount := float64(shares) * faceValue
 
 	tx, err := db.Begin()
 	err = dbactions.UpdateUserMoney(tx, username, amount, orderType)
@@ -166,7 +166,7 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = dbactions.RemoveReservation(tx, username, symbol, orderType, shares, face_value)
+	err = dbactions.RemoveReservation(tx, username, symbol, orderType, shares, faceValue)
 	if err != nil {
 		utils.LogErr(err)
 		tx.Rollback()
