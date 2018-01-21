@@ -133,6 +133,64 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 
 func commitBuy(w http.ResponseWriter, r *http.Request) {
 	const orderType = "buy"
+	commitTransaction(w, r, orderType)
+}
+
+func sellOrder(w http.ResponseWriter, r *http.Request) {
+	const orderType = "sell"
+	var userShares int
+
+	vars := mux.Vars(r)
+	username := vars["username"]
+	stock := vars["stock"]
+	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+
+	_, userShares, err := dbutils.QueryUserStock(username, stock)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Write([]byte("User has no shares of this stock."))
+			return
+		}
+		utils.LogErr(err)
+		w.Write([]byte("Error getting user stock data."))
+	}
+
+	body, err := dbutils.QueryQuote(username, stock)
+	if err != nil {
+		utils.LogErr(err)
+		if body != nil {
+			w.Write([]byte("Error getting stock quote."))
+		}
+		w.Write([]byte("Error converting quote to string."))
+	}
+
+	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
+	balance := quote * float64(userShares)
+
+	if balance < sellAmount {
+		w.Write([]byte("Insufficent balance to sell stock."))
+		return
+	}
+
+	_, err = dbactions.AddReservation(username, stock, orderType, userShares, quote)
+
+	if err != nil {
+		utils.LogErr(err)
+		w.Write([]byte("Error reserving stock."))
+		return
+	}
+
+	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
+	go dbactions.RemoveOrder(username, stock, orderType, userShares, quote)
+}
+
+func commitSell(w http.ResponseWriter, r *http.Request) {
+	const orderType = "sell"
+	commitTransaction(w, r, orderType)
+}
+
+func commitTransaction(w http.ResponseWriter, r *http.Request, orderType string) {
 	var symbol string
 	var shares int
 	var faceValue float64
@@ -185,55 +243,6 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Sucessfully comitted transaction."))
 }
 
-func sellOrder(w http.ResponseWriter, r *http.Request) {
-	const orderType = "sell"
-	var userShares int
-
-	vars := mux.Vars(r)
-	username := vars["username"]
-	stock := vars["stock"]
-	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
-
-	_, userShares, err := dbutils.QueryUserStock(username, stock)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Write([]byte("User has no shares of this stock."))
-			return
-		}
-		utils.LogErr(err)
-		w.Write([]byte("Error getting user stock data."))
-	}
-
-	body, err := dbutils.QueryQuote(username, stock)
-	if err != nil {
-		utils.LogErr(err)
-		if body != nil {
-			w.Write([]byte("Error getting stock quote."))
-		}
-		w.Write([]byte("Error converting quote to string."))
-	}
-
-	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
-	balance := quote * float64(userShares)
-
-	if balance < sellAmount {
-		w.Write([]byte("Insufficent balance to sell stock."))
-		return
-	}
-
-	_, err = dbactions.AddReservation(username, stock, orderType, userShares, quote)
-
-	if err != nil {
-		utils.LogErr(err)
-		w.Write([]byte("Error reserving stock."))
-		return
-	}
-
-	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-	go dbactions.RemoveOrder(username, stock, orderType, userShares, quote)
-}
-
 // func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 // 	vars := mux.Vars(r)
 // 	username := vars["username"]
@@ -260,6 +269,7 @@ func main() {
 	router.HandleFunc("/api/buyOrder/{username}/{stock}/{amount}", buyOrder)
 	router.HandleFunc("/api/commitBuy/{username}", commitBuy)
 	router.HandleFunc("/api/sellOrder/{username}/{stock}/{amount}", sellOrder)
+	router.HandleFunc("/api/commitSell/{username}", commitSell)
 
 	// router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", setBuyAmount)
 
