@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	"../../utils"
 )
@@ -58,21 +60,22 @@ func QueryUserStock(username string, symbol string) (string, int, error) {
 	return sid, shares, err
 }
 
-func QueryUserStockTrigger(username string, stock string) (string, int64, error) {
+func QueryUserStockTrigger(username string, stock string, orderType string) (string, int64, float64, error) {
 	var shares sql.NullInt64
+	var totalAmount sql.NullFloat64
 
-	query := "SELECT shares FROM triggers WHERE username=$1 AND symbol=$2"
-	err := db.QueryRow(query, username, stock).Scan(&shares)
+	query := "SELECT shares, amount FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3"
+	err := db.QueryRow(query, username, stock, orderType).Scan(&shares, &totalAmount)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Println("Trigger does not exist.")
 		}
 		utils.LogErr(err)
-		return string(""), -1, err
+		return string(""), -1, -1, err
 	}
 
-	return stock, shares.Int64, err
+	return stock, shares.Int64, totalAmount.Float64, err
 }
 
 func QueryAndExecuteCurrentTriggers() {
@@ -93,14 +96,23 @@ func QueryAndExecuteCurrentTriggers() {
 	var triggerValue sql.NullFloat64
 
 	for rows.Next() {
-		log.Println("yo")
 		err := rows.Scan(&username, &symbol, &orderType, &shares, &amount, &triggerValue)
 		if err != nil {
 			utils.LogErr(err)
 		}
-		url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
-		log.Println(url)
-		go http.Get(url)
+
+		isSell := strings.Compare(orderType, "sell") == 0
+		if (isSell && shares.Int64 > 0) || (!isSell && triggerValue.Float64 > 0) {
+			quoteStr, err := QueryQuote(username, symbol)
+			if err != nil {
+				quote, _ := strconv.ParseFloat(strings.Split(string(quoteStr), ",")[0], 64)
+				if quote <= triggerValue.Float64 {
+					url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
+					log.Println(url)
+					go http.Get(url)
+				}
+			}
+		}
 	}
 
 	return

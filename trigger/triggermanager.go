@@ -6,9 +6,11 @@ import (
 	"../queries/utils"
 )
 
+const pollInterval = 5
+
 func Manage() {
-	// for {
-	time.Sleep(1)
-	dbutils.QueryAndExecuteCurrentTriggers()
-	// }
+	for {
+		time.Sleep(pollInterval)
+		dbutils.QueryAndExecuteCurrentTriggers()
+	}
 }

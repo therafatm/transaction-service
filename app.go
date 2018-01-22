@@ -224,10 +224,6 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Insufficent balance."))
 		return
 	}
-	log.Println("Balance is ")
-	log.Println(userBalance)
-	log.Println("Money is ")
-	log.Println(buyAmount)
 
 	res := dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
 	w.Write(res)
@@ -239,8 +235,9 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	username := vars["username"]
 	stock := vars["stock"]
 	triggerPrice := vars["triggerPrice"]
+	orderType := "buy"
 
-	_, _, err := dbutils.QueryUser(username)
+	_, _, _, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -258,7 +255,59 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func ExecuteTrigger(w http.ResponseWriter, r *http.Request) {
+func setSellAmount(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	stock := vars["stock"]
+	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+	orderType := "sell"
+
+	_, _, err := dbutils.QueryUser(username)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Write([]byte("Invalid user."))
+			return
+		}
+		utils.LogErr(err)
+		w.Write([]byte("Error getting user data."))
+		return
+	}
+
+	err = dbactions.SetUserOrderTypeAmount(nil, username, stock, orderType, sellAmount, nil)
+
+	w.Write([]byte(err.Error()))
+	return
+}
+
+func setSellTrigger(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	stock := vars["stock"]
+	triggerPrice := vars["triggerPrice"]
+	orderType := "sell"
+
+	_, _, totalValue, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Write([]byte("Invalid user."))
+			return
+		}
+		utils.LogErr(err)
+		w.Write([]byte("Error getting user data."))
+		return
+	}
+
+	triggerPriceFloat, _ := strconv.ParseFloat(triggerPrice, 64)
+
+	res := dbactions.SetSellTrigger(username, stock, totalValue, triggerPriceFloat)
+
+	w.Write(res)
+	return
+}
+
+func executeTrigger(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["stock"]
@@ -270,6 +319,30 @@ func ExecuteTrigger(w http.ResponseWriter, r *http.Request) {
 	res := []byte(dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType))
 	log.Println(string(res))
 	w.Write(res)
+}
+
+func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	symbol := vars["stock"]
+	res := dbactions.CancelSetTrigger(username, symbol, "buy")
+	w.Write(res)
+}
+
+func cancelSetSell(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	symbol := vars["stock"]
+	res := dbactions.CancelSetTrigger(username, symbol, "sell")
+	w.Write(res)
+}
+
+func logHandler(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
+		log.Println(l)
+		fn(w, r)
+	}
 }
 
 func main() {
@@ -285,17 +358,25 @@ func main() {
 
 	log.Println("Running transaction server on port: " + strconv.Itoa(port))
 
-	router.HandleFunc("/api/getQuote/{username}/{stock}", getQuoute)
-	router.HandleFunc("/api/addUser/{username}/{money}", addUser)
-	router.HandleFunc("/api/buyOrder/{username}/{stock}/{amount}", buyOrder)
-	router.HandleFunc("/api/commitBuy/{username}", commitBuy)
-	router.HandleFunc("/api/sellOrder/{username}/{stock}/{amount}", sellOrder)
-	router.HandleFunc("/api/commitSell/{username}", commitSell)
+	router.HandleFunc("/api/getQuote/{username}/{stock}", logHandler(getQuoute))
+	router.HandleFunc("/api/addUser/{username}/{money}", logHandler(addUser))
+	router.HandleFunc("/api/buyOrder/{username}/{stock}/{amount}", logHandler(buyOrder))
+	router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
+	router.HandleFunc("/api/sellOrder/{username}/{stock}/{amount}", logHandler(sellOrder))
+	router.HandleFunc("/api/commitSell/{username}", logHandler(commitSell))
 
-	router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", setBuyAmount)
-	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", setBuyTrigger)
+	router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", logHandler(setBuyAmount))
+	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", logHandler(setBuyTrigger))
+	router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
+	router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
 
-	router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", ExecuteTrigger)
+	router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
+	router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
+
+	router.HandleFunc("/api/cancelSetSell/{username}/{stock}", logHandler(cancelSetSell))
+	router.HandleFunc("/api/cancelSetBuy/{username}/{stock}", logHandler(cancelSetBuy))
+
+	router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", logHandler(executeTrigger))
 
 	// router.HandleFunc("/articles/{category}/{id:[0-9]+}", ArticleHandler)
 	http.Handle("/", router)
