@@ -27,17 +27,19 @@ func GetQuoteServerURL() string {
 		return string("http://localhost:" + quoteServerPort)
 	}
 
-	return string("http:quoteserve.seng:4444")
+	return string("http://quoteserver:8000")
 }
 
 func QueryQuote(username string, stock string) (body []byte, err error) {
 	URL := GetQuoteServerURL()
+	log.Println(URL)
 	res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
 
 	if err != nil {
 		utils.LogErr(err)
 	} else {
 		body, err = ioutil.ReadAll(res.Body)
+		log.Println(string(body))
 	}
 
 	return
@@ -103,14 +105,18 @@ func QueryAndExecuteCurrentTriggers() {
 
 		isSell := strings.Compare(orderType, "sell") == 0
 		if (isSell && shares.Int64 > 0) || (!isSell && triggerValue.Float64 > 0) {
+			log.Println(username)
+			log.Println(symbol)
 			quoteStr, err := QueryQuote(username, symbol)
-			if err != nil {
+			if err == nil {
 				quote, _ := strconv.ParseFloat(strings.Split(string(quoteStr), ",")[0], 64)
 				if quote <= triggerValue.Float64 {
 					url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
 					log.Println(url)
 					go http.Get(url)
 				}
+			} else {
+				utils.LogErr(err)
 			}
 		}
 	}

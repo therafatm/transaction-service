@@ -11,7 +11,6 @@ import (
 
 	"./queries/actions"
 	"./queries/utils"
-	"./trigger"
 	"./utils"
 
 	"github.com/gorilla/mux"
@@ -45,7 +44,8 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 	body, err := dbutils.QueryQuote(vars["username"], vars["stock"])
 
 	if err != nil {
-		w.Write([]byte("Error getting quote."))
+		w.Write([]byte("Error getting quote.\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	w.Write([]byte(body))
@@ -62,14 +62,16 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			err := dbactions.InsertUser(username, addMoney)
 			if err != nil {
-				w.Write([]byte("Failed to add user " + username))
+				w.Write([]byte("Failed to add user " + username + ".\n"))
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 			} else {
 				w.Write([]byte("Successfully added user " + username))
+				return
 			}
-			return
 		}
-		w.Write([]byte("Failed to add user " + username))
-		return
+
+		w.Write([]byte("Failed to add user " + username + ".\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	//add money to existing user
@@ -80,11 +82,12 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 	err = dbactions.UpdateUser(username, balanceString)
 
 	if err != nil {
-		w.Write([]byte("Failed to update user " + username))
-	} else {
-		w.Write([]byte("Successfully added user " + username))
+		w.Write([]byte("Failed to update user " + username + ".\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
+	w.Write([]byte("Successfully added user " + username))
+	return
 }
 
 func buyOrder(w http.ResponseWriter, r *http.Request) {
@@ -101,11 +104,12 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user."))
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		utils.LogErr(err)
-		w.Write([]byte("Error getting user data."))
-		return
+		w.Write([]byte("Error getting user data.\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	if balance < buyAmount {
@@ -117,9 +121,11 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.LogErr(err)
 		if body != nil {
-			w.Write([]byte("Error getting stock quote."))
+			w.Write([]byte("Error getting stock quote.\n"))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		w.Write([]byte("Error converting quote to string."))
+		w.Write([]byte("Error converting quote to string.\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
@@ -130,7 +136,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.LogErr(err)
 		w.Write([]byte("Error reserving stock."))
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	w.Write([]byte("Buy order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
@@ -225,7 +231,8 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
+	res := dbactions.CancelSetTrigger(username, stock, orderType)
+	res = dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
 	w.Write(res)
 	return
 }
@@ -378,7 +385,6 @@ func main() {
 
 	router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", logHandler(executeTrigger))
 
-	// router.HandleFunc("/articles/{category}/{id:[0-9]+}", ArticleHandler)
 	http.Handle("/", router)
 
 	go triggermanager.Manage()

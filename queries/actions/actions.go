@@ -353,7 +353,7 @@ func CancelSetTrigger(username string, symbol string, orderType string) []byte {
 		return []byte("Error committing transaction.")
 	}
 
-	return []byte("Sucessfully comitted CANCEL SET SELL TRIGGER transaction.")
+	return []byte("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
 }
 
 func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) []byte {
