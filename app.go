@@ -57,16 +57,20 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 
 	_, balance, err := dbutils.QueryUser(username)
 
-	if err == sql.ErrNoRows {
-		//add new user
-		err := dbactions.InsertUser(username, addMoney)
-		if err != nil {
-			w.Write([]byte("Failed to add user " + username))
-		} else {
-			w.Write([]byte("Successfully added user " + username))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			err := dbactions.InsertUser(username, addMoney)
+			if err != nil {
+				w.Write([]byte("Failed to add user " + username))
+			} else {
+				w.Write([]byte("Successfully added user " + username))
+			}
+			return
 		}
+		w.Write([]byte("Failed to add user " + username))
 		return
 	}
+
 	//add money to existing user
 	addMoneyFloat, err := strconv.ParseFloat(addMoney, 64)
 	balance += addMoneyFloat
@@ -100,6 +104,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
+		return
 	}
 
 	if balance < buyAmount {
@@ -194,13 +199,60 @@ func commitSell(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
-// func setBuyAmount(w http.ResponseWriter, r *http.Request) {
-// 	vars := mux.Vars(r)
-// 	username := vars["username"]
-// 	stock := vars["stock"]
-// 	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+func setBuyAmount(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	stock := vars["stock"]
+	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+	orderType := "buy"
 
-// }
+	_, userBalance, err := dbutils.QueryUser(username)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Write([]byte("Invalid user."))
+			return
+		}
+		utils.LogErr(err)
+		w.Write([]byte("Error getting user data."))
+		return
+	}
+
+	if userBalance < buyAmount {
+		log.Printf("User balance: %f\nBuy amount: %f", buyAmount, userBalance)
+		w.Write([]byte("Insufficent balance."))
+		return
+	}
+
+	remainingBalance := userBalance - buyAmount
+	res := dbactions.CommitSetBuyAmountTx(username, stock, orderType, remainingBalance, buyAmount)
+	w.Write(res)
+	return
+}
+
+func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	stock := vars["stock"]
+	triggerPrice := vars["triggerPrice"]
+
+	_, _, err := dbutils.QueryUser(username)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Write([]byte("Invalid user."))
+			return
+		}
+		utils.LogErr(err)
+		w.Write([]byte("Error getting user data."))
+		return
+	}
+
+	res := dbactions.SetBuyTrigger(username, stock, triggerPrice)
+
+	w.Write(res)
+	return
+}
 
 func main() {
 	db = connectToDB()
@@ -222,7 +274,8 @@ func main() {
 	router.HandleFunc("/api/sellOrder/{username}/{stock}/{amount}", sellOrder)
 	router.HandleFunc("/api/commitSell/{username}", commitSell)
 
-	// router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", setBuyAmount)
+	router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", setBuyAmount)
+	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", setBuyTrigger)
 
 	// router.HandleFunc("/articles/{category}/{id:[0-9]+}", ArticleHandler)
 	http.Handle("/", router)
