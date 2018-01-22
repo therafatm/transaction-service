@@ -3,6 +3,7 @@ package dbactions
 import (
 	"database/sql"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 	_, currentShares, err := dbutils.QueryUserStock(username, symbol)
 
 	if err != nil {
+		utils.LogErr(err)
 		if err == sql.ErrNoRows {
 			query := "INSERT INTO stocks(username,symbol,shares) VALUES($1,$2,$3)"
 			_, err = tx.Exec(query, username, symbol, shares)
@@ -63,6 +65,7 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 		currentShares -= shares
 	}
 
+	log.Println(currentShares)
 	query := "UPDATE stocks SET shares=$1 WHERE username=$2 AND symbol=$3"
 	_, err = tx.Exec(query, currentShares, username, symbol)
 
@@ -79,6 +82,10 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 
 func UpdateUserMoney(tx *sql.Tx, username string, money float64, orderType string, channel chan error) (err error) {
 	_, balance, err := dbutils.QueryUser(username)
+	log.Println("Balance is ")
+	log.Println(balance)
+	log.Println("Money is ")
+	log.Println(money)
 
 	if err != nil {
 		utils.LogErr(err)
@@ -137,11 +144,22 @@ func RemoveOrder(username string, stock string, reservationType string, shares i
 
 func SetUserBuyAmount(tx *sql.Tx, username string, stock string, orderType string, amount float64, channel chan error) (err error) {
 
-	query := "INSERT INTO triggers(username, symbol, type, amount) VALUES($1,$2,$3,$4)"
-	if tx != nil {
-		_, err = tx.Exec(query, username, stock, orderType, amount)
+	_, _, err = dbutils.QueryUserStockTrigger(username, stock)
+
+	if err != nil {
+		query := "INSERT INTO triggers(username, symbol, type, amount) VALUES($1,$2,$3,$4)"
+		if tx != nil {
+			_, err = tx.Exec(query, username, stock, orderType, amount)
+		} else {
+			_, err = db.Exec(query, username, stock, orderType, amount)
+		}
 	} else {
-		_, err = db.Exec(query, username, stock, orderType, amount)
+		query := "UPDATE triggers SET amount = $1"
+		if tx != nil {
+			_, err = tx.Exec(query, amount)
+		} else {
+			_, err = db.Exec(query, amount)
+		}
 	}
 
 	if err != nil {
@@ -223,12 +241,12 @@ func CommitTransaction(username string, orderType string) []byte {
 	return []byte("Sucessfully comitted transaction.")
 }
 
-func CommitSetBuyAmountTx(username string, symbol string, orderType string, balance float64, buyAmount float64) []byte {
+func CommitSetBuyAmountTx(username string, symbol string, orderType string, buyAmount float64) []byte {
 
 	queryResults := make(chan error)
 	tx, err := db.Begin()
 
-	go UpdateUserMoney(tx, username, balance, orderType, queryResults)
+	go UpdateUserMoney(tx, username, buyAmount, orderType, queryResults)
 	go SetUserBuyAmount(tx, username, symbol, orderType, buyAmount, queryResults)
 
 	err1, err2 := <-queryResults, <-queryResults
@@ -258,33 +276,42 @@ func SetBuyTrigger(username string, symbol string, triggerPrice string) []byte {
 	return []byte("Sucessfully comitted SET BUY TRIGGER transaction.")
 }
 
-// func ExecuteTrigger(username string, symbol string, orderType string) []byte {
+func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) []byte {
 
-// 	_, shares, err := dbutils.QueryUserStockTrigger(username, symbol)
-// 	if err != nil {
-// 		return []byte("Trigger does not exist.")
-// 	}
+	var err3 error = nil
+	var sharesInt int
+	queryResults := make(chan error)
+	isSellOrder := strings.Compare(orderType, "sell") > 0
+	if !isSellOrder {
+		sharesInt = int(totalValue / triggerValue)
+	} else {
+		sharesInt, _ = strconv.Atoi(shares)
+	}
 
-// 	queryResults := make(chan error)
+	tx, err := db.Begin()
 
-// 	tx, err := db.Begin()
+	go UpdateUserStock(tx, username, symbol, sharesInt, orderType, queryResults)
+	go RemoveUserStockTrigger(tx, username, symbol, queryResults)
+	if isSellOrder {
+		go UpdateUserMoney(tx, username, totalValue, orderType, queryResults)
+	}
 
-// 	go UpdateUserStock(tx, username, symbol, shares, orderType, queryResults)
-// 	go RemoveUserStockTrigger(tx, username, symbol, queryResults)
+	err1, err2 := <-queryResults, <-queryResults
+	if isSellOrder {
+		err3 = <-queryResults
+	}
 
-// 	err1, err2 := <-queryResults, <-queryResults
+	if err != nil || err1 != nil || err2 != nil || err3 != nil {
+		tx.Rollback()
+		return []byte("Error querying within transaction.")
+	}
 
-// 	if err != nil || err1 != nil || err2 != nil {
-// 		tx.Rollback()
-// 		return []byte("Error querying within transaction.")
-// 	}
+	err = tx.Commit()
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return []byte("Error committing transaction.")
+	}
 
-// 	err = tx.Commit()
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		tx.Rollback()
-// 		return []byte("Error committing transaction.")
-// 	}
-
-// 	return []byte("Sucessfully comitted SET BUY transaction.")
-// }
+	return []byte("Sucessfully executed SET BUY trigger.")
+}

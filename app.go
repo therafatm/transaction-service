@@ -11,6 +11,7 @@ import (
 
 	"./queries/actions"
 	"./queries/utils"
+	"./trigger"
 	"./utils"
 
 	"github.com/gorilla/mux"
@@ -223,9 +224,12 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Insufficent balance."))
 		return
 	}
+	log.Println("Balance is ")
+	log.Println(userBalance)
+	log.Println("Money is ")
+	log.Println(buyAmount)
 
-	remainingBalance := userBalance - buyAmount
-	res := dbactions.CommitSetBuyAmountTx(username, stock, orderType, remainingBalance, buyAmount)
+	res := dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
 	w.Write(res)
 	return
 }
@@ -254,6 +258,20 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func ExecuteTrigger(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	symbol := vars["stock"]
+	shares := vars["shares"]
+	triggerValue, _ := strconv.ParseFloat(vars["triggerValue"], 64)
+	totalValue, _ := strconv.ParseFloat(vars["totalValue"], 64)
+	orderType := vars["orderType"]
+
+	res := []byte(dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType))
+	log.Println(string(res))
+	w.Write(res)
+}
+
 func main() {
 	db = connectToDB()
 	defer db.Close()
@@ -277,8 +295,12 @@ func main() {
 	router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", setBuyAmount)
 	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", setBuyTrigger)
 
+	router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", ExecuteTrigger)
+
 	// router.HandleFunc("/articles/{category}/{id:[0-9]+}", ArticleHandler)
 	http.Handle("/", router)
+
+	go triggermanager.Manage()
 
 	if err := http.ListenAndServe(":"+strconv.Itoa(port), nil); err != nil {
 		log.Fatal(err)

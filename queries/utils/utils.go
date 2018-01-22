@@ -2,6 +2,7 @@ package dbutils
 
 import (
 	"database/sql"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -57,8 +58,8 @@ func QueryUserStock(username string, symbol string) (string, int, error) {
 	return sid, shares, err
 }
 
-func QueryUserStockTrigger(username string, stock string) (string, int, error) {
-	var shares int
+func QueryUserStockTrigger(username string, stock string) (string, int64, error) {
+	var shares sql.NullInt64
 
 	query := "SELECT shares FROM triggers WHERE username=$1 AND symbol=$2"
 	err := db.QueryRow(query, username, stock).Scan(&shares)
@@ -71,7 +72,38 @@ func QueryUserStockTrigger(username string, stock string) (string, int, error) {
 		return string(""), -1, err
 	}
 
-	return stock, shares, err
+	return stock, shares.Int64, err
+}
+
+func QueryAndExecuteCurrentTriggers() {
+
+	query := "SELECT username, symbol, type, shares, amount,triggerprice FROM triggers WHERE triggerprice IS NOT NULL"
+	rows, err := db.Query(query)
+
+	if err != nil {
+		utils.LogErr(err)
+	}
+
+	defer rows.Close()
+	var username string
+	var symbol string
+	var orderType string
+	var shares sql.NullInt64
+	var amount sql.NullFloat64
+	var triggerValue sql.NullFloat64
+
+	for rows.Next() {
+		log.Println("yo")
+		err := rows.Scan(&username, &symbol, &orderType, &shares, &amount, &triggerValue)
+		if err != nil {
+			utils.LogErr(err)
+		}
+		url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
+		log.Println(url)
+		go http.Get(url)
+	}
+
+	return
 }
 
 func QueryLastReservation(username string, orderType string) (string, int, float64, error) {
