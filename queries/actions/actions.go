@@ -326,6 +326,7 @@ func BuyOrderTx(username string, symbol string, orderType string, buyUnits int, 
 
 func SetBuyTrigger(username string, symbol string, orderType string, triggerPrice string) (err error) {
 
+	// decline if trigger exists with triggerPrice and buyAmount
 	err = UpdateUserStockTriggerPrice(username, symbol, orderType, triggerPrice)
 	if err != nil {
 		utils.LogErr(err)
@@ -365,7 +366,7 @@ func SetSellTrigger(username string, symbol string, totalValue float64, triggerP
 
 func CancelSetTrigger(username string, symbol string, orderType string) (err error) {
 
-	_, shares, totalValue, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
+	_, shares, totalValue, _, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
 	if err != nil {
 		// DB error or no trigger exists
 		return

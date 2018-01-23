@@ -306,18 +306,11 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = dbactions.CancelSetTrigger(username, stock, orderType)
-	if err != nil {
-		// Legitimate DB error
-		// If sql.ErrNoRows is returned, no trigger exists so continue
-		if err != sql.ErrNoRows {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			log.Println("no way jose")
-			return
-		}
+	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+	if totalValue > 0 || triggerPriceDB > 0 {
+		w.Write([]byte("SET BUY AMOUNT already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
+		return
 	}
-
-	log.Println("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
 
 	err = dbactions.ExecuteSetBuyAmount(username, stock, orderType, buyAmount)
 	if err != nil {
@@ -338,7 +331,7 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	orderType := "buy"
 
 	// check if user has SET BUY AMOUNT record in trigger DB
-	_, _, _, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -348,6 +341,18 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// trigger already exists, return error
+	if totalValue > 0 && triggerPriceDB > 0 {
+		w.Write([]byte("SET BUY TRIGGER already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
+		return
+	}
+
+	// invalid trigger price
+	if p, err := strconv.ParseFloat(triggerPrice, 64); p <= 0 || err != nil {
+		w.Write([]byte("Invalid trigger price. Trigger price must be greater than 0.\n"))
 		return
 	}
 
@@ -380,6 +385,12 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.LogErr(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
+	if totalValue > 0 || triggerPriceDB > 0 {
+		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
 		return
 	}
 
@@ -418,7 +429,11 @@ func setSellTrigger(w http.ResponseWriter, r *http.Request) {
 	triggerPrice := vars["triggerPrice"]
 	orderType := "sell"
 
-	_, _, totalValue, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+	if totalValue > 0 && triggerPriceDB > 0 {
+		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
+		return
+	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {

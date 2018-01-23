@@ -62,22 +62,23 @@ func QueryUserStock(username string, symbol string) (string, int, error) {
 	return sid, shares, err
 }
 
-func QueryUserStockTrigger(username string, stock string, orderType string) (string, int64, float64, error) {
+func QueryUserStockTrigger(username string, stock string, orderType string) (string, int64, float64, float64, error) {
 	var shares sql.NullInt64
 	var totalAmount sql.NullFloat64
+	var triggerPrice sql.NullFloat64
 
-	query := "SELECT shares, amount FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3"
-	err := db.QueryRow(query, username, stock, orderType).Scan(&shares, &totalAmount)
+	query := "SELECT shares, amount, trigger_price FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3"
+	err := db.QueryRow(query, username, stock, orderType).Scan(&shares, &totalAmount, &triggerPrice)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Println("Trigger does not exist.")
 		}
 		utils.LogErr(err)
-		return string(""), -1, -1, err
+		return string(""), -1, -1, -1, err
 	}
 
-	return stock, shares.Int64, totalAmount.Float64, err
+	return stock, shares.Int64, totalAmount.Float64, triggerPrice.Float64, err
 }
 
 func QueryAndExecuteCurrentTriggers() {
