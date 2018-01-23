@@ -3,7 +3,7 @@ package triggermanager
 import (
 	"time"
 
-	"transaction-service/queries/utils"
+	"transaction_service/queries/utils"
 )
 
 const pollInterval = 5

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"transaction-service/utils"
+	"transaction_service/utils"
 )
 
 var db *sql.DB

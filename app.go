@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"transaction-service/queries/actions"
-	"transaction-service/queries/utils"
-	"transaction-service/triggers/triggermanager"
-	"transaction-service/utils"
+	"transaction_service/queries/actions"
+	"transaction_service/queries/utils"
+	"transaction_service/triggers/triggermanager"
+	"transaction_service/utils"
 
 	"github.com/gorilla/mux"
 	// "github.com/phayes/freeport"
