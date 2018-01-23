@@ -103,9 +103,8 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Write([]byte("Invalid user."))
+			w.Write([]byte("Invalid user.\n"))
 			http.Error(w, err.Error(), http.StatusForbidden)
-			return
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data.\n"))
@@ -146,8 +145,14 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 func commitBuy(w http.ResponseWriter, r *http.Request) {
 	const orderType = "buy"
 	var requestParams = mux.Vars(r)
-	response := dbactions.CommitTransaction(requestParams["username"], orderType)
-	w.Write(response)
+	err := dbactions.CommitTransaction(requestParams["username"], orderType)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Write([]byte("Sucessfully comitted transaction."))
+	return
 }
 
 func sellOrder(w http.ResponseWriter, r *http.Request) {
@@ -167,16 +172,14 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		utils.LogErr(err)
-		w.Write([]byte("Error getting user stock data."))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	body, err := dbutils.QueryQuote(username, stock)
 	if err != nil {
 		utils.LogErr(err)
-		if body != nil {
-			w.Write([]byte("Error getting stock quote."))
-		}
-		w.Write([]byte("Error converting quote to string."))
+		w.Write([]byte("Error getting stock quote.\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
@@ -191,8 +194,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		utils.LogErr(err)
-		w.Write([]byte("Error reserving stock."))
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
@@ -202,8 +204,15 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 func commitSell(w http.ResponseWriter, r *http.Request) {
 	const orderType = "sell"
 	var requestParams = mux.Vars(r)
-	response := dbactions.CommitTransaction(requestParams["username"], orderType)
-	w.Write(response)
+	err := dbactions.CommitTransaction(requestParams["username"], orderType)
+
+	if err != nil {
+		utils.LogErr(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Write([]byte("Sucessfully comitted transaction."))
+	return
 }
 
 func setBuyAmount(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +231,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	if userBalance < buyAmount {
@@ -231,9 +240,20 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := dbactions.CancelSetTrigger(username, stock, orderType)
-	res = dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
-	w.Write(res)
+	err = dbactions.CancelSetTrigger(username, stock, orderType)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	log.Println("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
+	err = dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	m := string("Sucessfully comitted SET BUY transaction.")
+
+	w.Write([]byte(m))
 	return
 }
 
@@ -253,12 +273,17 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	res := dbactions.SetBuyTrigger(username, stock, triggerPrice)
+	err = dbactions.SetBuyTrigger(username, stock, triggerPrice)
 
-	w.Write(res)
+	if err != nil {
+		w.Write([]byte("Failed to SET BUY trigger.\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Write([]byte("Successfully SET BUY trigger."))
 	return
 }
 
@@ -278,12 +303,17 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	err = dbactions.SetUserOrderTypeAmount(nil, username, stock, orderType, sellAmount, nil)
 
-	w.Write([]byte(err.Error()))
+	if err != nil {
+		w.Write([]byte("Error setting SET SELL amount."))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Write([]byte("Successfully SET SELL amount"))
 	return
 }
 
@@ -308,9 +338,13 @@ func setSellTrigger(w http.ResponseWriter, r *http.Request) {
 
 	triggerPriceFloat, _ := strconv.ParseFloat(triggerPrice, 64)
 
-	res := dbactions.SetSellTrigger(username, stock, totalValue, triggerPriceFloat)
+	err = dbactions.SetSellTrigger(username, stock, totalValue, triggerPriceFloat)
 
-	w.Write(res)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Write([]byte("Successfully SET SELL trigger."))
 	return
 }
 
@@ -323,16 +357,28 @@ func executeTrigger(w http.ResponseWriter, r *http.Request) {
 	totalValue, _ := strconv.ParseFloat(vars["totalValue"], 64)
 	orderType := vars["orderType"]
 
-	res := []byte(dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType))
-	log.Println(string(res))
+	err := dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	res := []byte("Sucessfully executed SET " + orderType + " trigger.")
 	w.Write(res)
+	return
 }
 
 func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["stock"]
-	res := dbactions.CancelSetTrigger(username, symbol, "buy")
+	err := dbactions.CancelSetTrigger(username, symbol, "buy")
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	res := []byte("Successfully cancelled SET BUY\n")
 	w.Write(res)
 }
 
@@ -340,7 +386,13 @@ func cancelSetSell(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["stock"]
-	res := dbactions.CancelSetTrigger(username, symbol, "sell")
+	err := dbactions.CancelSetTrigger(username, symbol, "sell")
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	res := []byte("Successfully cancelled SET SELL\n")
 	w.Write(res)
 }
 
@@ -387,7 +439,7 @@ func main() {
 
 	http.Handle("/", router)
 
-	go triggermanager.Manage()
+	// go triggermanager.Manage()
 
 	if err := http.ListenAndServe(":"+strconv.Itoa(port), nil); err != nil {
 		log.Fatal(err)

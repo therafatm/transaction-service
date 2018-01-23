@@ -215,17 +215,16 @@ func UpdateUserStockTriggerShares(tx *sql.Tx, username string, stock string, sha
 	return
 }
 
-func CommitTransaction(username string, orderType string) []byte {
+func CommitTransaction(username string, orderType string) (err error) {
 	var symbol string
 	var shares int
 	var faceValue float64
-	var err error
 
 	symbol, shares, faceValue, err = dbutils.QueryLastReservation(username, orderType)
 
 	if err != nil {
 		utils.LogErr(err)
-		return []byte("Error retrieving reservation.")
+		return
 	}
 
 	amount := float64(shares) * faceValue
@@ -240,20 +239,21 @@ func CommitTransaction(username string, orderType string) []byte {
 	err1, err2, err3 := <-queryResults, <-queryResults, <-queryResults
 	if err != nil || err1 != nil || err2 != nil || err3 != nil {
 		tx.Rollback()
-		return []byte("Error querying within transaction.")
+		err = errors.New("Error querying within transaction.\n")
+		return
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		utils.LogErr(err)
 		tx.Rollback()
-		return []byte("Error committing transaction.")
+		return
 	}
 
-	return []byte("Sucessfully comitted transaction.")
+	return
 }
 
-func CommitSetBuyAmountTx(username string, symbol string, orderType string, buyAmount float64) []byte {
+func CommitSetBuyAmountTx(username string, symbol string, orderType string, buyAmount float64) (err error) {
 
 	queryResults := make(chan error)
 	tx, err := db.Begin()
@@ -265,31 +265,34 @@ func CommitSetBuyAmountTx(username string, symbol string, orderType string, buyA
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()
-		return []byte("Error querying within transaction.")
+		utils.LogErr(err)
+		utils.LogErr(err1)
+		utils.LogErr(err2)
+		return
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		utils.LogErr(err)
 		tx.Rollback()
-		return []byte("Error committing transaction.")
+		return
 	}
 
-	m := string("Sucessfully comitted SET " + orderType + " transaction.")
-	return []byte(m)
+	return
 }
 
-func SetBuyTrigger(username string, symbol string, triggerPrice string) []byte {
+func SetBuyTrigger(username string, symbol string, triggerPrice string) (err error) {
 
-	err := UpdateUserStockTriggerPrice(username, symbol, triggerPrice)
+	err = UpdateUserStockTriggerPrice(username, symbol, triggerPrice)
 	if err != nil {
-		return []byte("Failed to update trigger.")
+		utils.LogErr(err)
+		return
 	}
 
-	return []byte("Sucessfully comitted SET BUY TRIGGER transaction.")
+	return
 }
 
-func SetSellTrigger(username string, symbol string, totalValue float64, triggerPrice float64) []byte {
+func SetSellTrigger(username string, symbol string, totalValue float64, triggerPrice float64) (err error) {
 
 	orderType := "sell"
 	shares := int(totalValue / triggerPrice)
@@ -305,20 +308,22 @@ func SetSellTrigger(username string, symbol string, totalValue float64, triggerP
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()
-		return []byte("Error querying within transaction.")
+		err = errors.New("error querying within transaction")
+		utils.LogErr(err)
+		return
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		utils.LogErr(err)
 		tx.Rollback()
-		return []byte("Error committing transaction.")
+		return
 	}
 
-	return []byte("Sucessfully comitted SET SELL transaction.")
+	return
 }
 
-func CancelSetTrigger(username string, symbol string, orderType string) []byte {
+func CancelSetTrigger(username string, symbol string, orderType string) (err error) {
 
 	_, shares, totalValue, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
 	isSell := strings.Compare(orderType, "sell") == 0
@@ -343,20 +348,20 @@ func CancelSetTrigger(username string, symbol string, orderType string) []byte {
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()
-		return []byte("Error querying within transaction.")
+		return
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		utils.LogErr(err)
 		tx.Rollback()
-		return []byte("Error committing transaction.")
+		return
 	}
 
-	return []byte("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
+	return
 }
 
-func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) []byte {
+func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) (err error) {
 
 	var err3 error = nil
 	var sharesInt int
@@ -383,15 +388,16 @@ func ExecuteTrigger(username string, symbol string, shares string, totalValue fl
 
 	if err != nil || err1 != nil || err2 != nil || err3 != nil {
 		tx.Rollback()
-		return []byte("Error querying within transaction.")
+		err = errors.New("Error querying within transaction.")
+		return
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		utils.LogErr(err)
 		tx.Rollback()
-		return []byte("Error committing transaction.")
+		return
 	}
 
-	return []byte("Sucessfully executed SET BUY trigger.")
+	return
 }
