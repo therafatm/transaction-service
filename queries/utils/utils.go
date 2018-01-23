@@ -23,11 +23,10 @@ func SetUtilsDB(database *sql.DB) {
 }
 
 func GetQuoteServerURL() string {
-	if os.Getenv("GO_ENV") == "dev" {
-		return string("http://localhost:" + quoteServerPort)
-	}
-
-	return string("http://quoteserver:8000")
+    port := os.Getenv("QUOTE_SERVER_PORT")
+    host := os.Getenv("QUOTE_SERVER_HOST")
+    url := fmt.Sprintf("http://%s:%s", host, port)
+    return string(url)
 }
 
 func QueryQuote(username string, stock string) (body []byte, err error) {
