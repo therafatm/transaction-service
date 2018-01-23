@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"../../utils"
-	"../utils"
+	"transaction-service/queries/utils"
+	"transaction-service/utils"
 )
 
 var db *sql.DB
