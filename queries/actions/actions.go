@@ -345,7 +345,7 @@ func SetSellTrigger(username string, symbol string, totalValue float64, triggerP
 	tx, err := db.Begin()
 
 	err1 := UpdateUserStock(tx, username, symbol, shares, orderType, nil)
-	err2 := UpdateUserStockTriggerSharesAndPrice(tx, username, symbol, sharesStr, totalValue)
+	err2 := UpdateUserStockTriggerSharesAndPrice(tx, username, symbol, sharesStr, triggerPrice)
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()

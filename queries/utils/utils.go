@@ -94,14 +94,15 @@ func QueryAndExecuteCurrentTriggers() {
 	}
 
 	defer rows.Close()
-	var username string
-	var symbol string
-	var orderType string
-	var shares sql.NullInt64
-	var amount sql.NullFloat64
-	var triggerValue sql.NullFloat64
 
 	for rows.Next() {
+		var username string
+		var symbol string
+		var orderType string
+		var shares sql.NullInt64
+		var amount sql.NullFloat64
+		var triggerValue sql.NullFloat64
+
 		err := rows.Scan(&username, &symbol, &orderType, &shares, &amount, &triggerValue)
 		if err != nil {
 			utils.LogErr(err)
