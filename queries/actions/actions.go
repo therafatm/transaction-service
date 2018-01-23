@@ -178,24 +178,38 @@ func RemoveLastOrderTypeReservation(username string, orderType string) (err erro
 	return
 }
 
+func ExecuteSetBuyAmount(username string, symbol string, orderType string, buyAmount float64) (err error) {
+
+	tx, err := db.Begin()
+
+	err = SetUserOrderTypeAmount(tx, username, symbol, orderType, buyAmount, nil)
+	if err != nil {
+		utils.LogErr(err)
+		return
+	}
+
+	err = UpdateUserMoney(tx, username, buyAmount, orderType, nil)
+	if err != nil {
+		utils.LogErr(err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return
+	}
+
+	return
+}
+
 func SetUserOrderTypeAmount(tx *sql.Tx, username string, stock string, orderType string, amount float64, channel chan error) (err error) {
 
-	_, _, _, err = dbutils.QueryUserStockTrigger(username, stock, orderType)
-
-	if err != nil {
-		query := "INSERT INTO triggers(username, symbol, type, amount) VALUES($1,$2,$3,$4)"
-		if tx != nil {
-			_, err = tx.Exec(query, username, stock, orderType, amount)
-		} else {
-			_, err = db.Exec(query, username, stock, orderType, amount)
-		}
+	query := "INSERT INTO triggers(username, symbol, type, amount) VALUES($1,$2,$3,$4)"
+	if tx != nil {
+		_, err = tx.Exec(query, username, stock, orderType, amount)
 	} else {
-		// Already have a trigger set for this stock
-		// Cancel first, then apply for new one
-		log.Println("Trigger of type " + orderType + " exists for stock: " + stock)
-		s := fmt.Sprintf("Trigger exists of type %s for stock: %s\nCancel current trigger and request again.", orderType, stock)
-		err = errors.New(s)
-		return
+		_, err = db.Exec(query, username, stock, orderType, amount)
 	}
 
 	if err != nil {
@@ -227,10 +241,10 @@ func RemoveUserStockTrigger(tx *sql.Tx, username string, stock string, orderType
 	return
 }
 
-func UpdateUserStockTriggerPrice(username string, stock string, triggerPrice string) (err error) {
+func UpdateUserStockTriggerPrice(username string, stock string, orderType string, triggerPrice string) (err error) {
 
-	query := "UPDATE triggers SET trigger_price=$1 WHERE username=$2 AND symbol=$3"
-	_, err = db.Exec(query, triggerPrice, username, stock)
+	query := "UPDATE triggers SET trigger_price=$1 WHERE username=$2 AND symbol=$3 AND type=$4"
+	_, err = db.Exec(query, triggerPrice, username, stock, orderType)
 
 	if err != nil {
 		utils.LogErr(err)
@@ -311,9 +325,9 @@ func BuyOrderTx(username string, symbol string, orderType string, buyUnits int, 
 	return
 }
 
-func SetBuyTrigger(username string, symbol string, triggerPrice string) (err error) {
+func SetBuyTrigger(username string, symbol string, orderType string, triggerPrice string) (err error) {
 
-	err = UpdateUserStockTriggerPrice(username, symbol, triggerPrice)
+	err = UpdateUserStockTriggerPrice(username, symbol, orderType, triggerPrice)
 	if err != nil {
 		utils.LogErr(err)
 		return

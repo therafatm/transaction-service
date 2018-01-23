@@ -288,7 +288,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 
 	_, userBalance, err := dbutils.QueryUser(username)
 
-	// check that user has enough money
+	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user."))
@@ -312,19 +312,20 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		// If sql.ErrNoRows is returned, no trigger exists so continue
 		if err != sql.ErrNoRows {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Println("no way jose")
 			return
 		}
 	}
 
 	log.Println("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
-	err = dbactions.SetUserOrderTypeAmount(nil, username, stock, orderType, buyAmount, nil)
+
+	err = dbactions.ExecuteSetBuyAmount(username, stock, orderType, buyAmount)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	m := string("Sucessfully comitted SET BUY AMOUNT transaction.")
-
 	w.Write([]byte(m))
 	return
 }
@@ -336,11 +337,12 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	triggerPrice := vars["triggerPrice"]
 	orderType := "buy"
 
+	// check if user has SET BUY AMOUNT record in trigger DB
 	_, _, _, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Write([]byte("Invalid user."))
+			w.Write([]byte("SET BUY AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
 			return
 		}
 		utils.LogErr(err)
@@ -349,8 +351,7 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = dbactions.SetBuyTrigger(username, stock, triggerPrice)
-
+	err = dbactions.SetBuyTrigger(username, stock, orderType, triggerPrice)
 	if err != nil {
 		w.Write([]byte("Failed to SET BUY trigger.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
