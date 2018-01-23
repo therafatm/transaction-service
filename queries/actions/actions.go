@@ -3,7 +3,6 @@ package dbactions
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -253,13 +252,13 @@ func UpdateUserStockTriggerPrice(username string, stock string, orderType string
 	return
 }
 
-func UpdateUserStockTriggerShares(tx *sql.Tx, username string, stock string, shares string) (err error) {
+func UpdateUserStockTriggerSharesAndPrice(tx *sql.Tx, username string, stock string, shares string, triggerPrice float64) (err error) {
 
-	query := "UPDATE triggers SET shares=$1 WHERE username=$2 AND symbol=$3"
+	query := "UPDATE triggers SET shares=$1, trigger_price=$2 WHERE username=$3 AND symbol=$4"
 	if tx == nil {
-		_, err = db.Exec(query, shares, username, stock)
+		_, err = db.Exec(query, shares, triggerPrice, username, stock)
 	} else {
-		_, err = tx.Exec(query, shares, username, stock)
+		_, err = tx.Exec(query, shares, triggerPrice, username, stock)
 	}
 
 	if err != nil {
@@ -341,12 +340,11 @@ func SetSellTrigger(username string, symbol string, totalValue float64, triggerP
 	orderType := "sell"
 	shares := int(totalValue / triggerPrice)
 	sharesStr := strconv.Itoa(shares)
-	totalValueStr := fmt.Sprintf("%f", totalValue)
 
 	tx, err := db.Begin()
 
-	err1 := UpdateUserStock(tx, username, totalValueStr, shares, orderType, nil)
-	err2 := UpdateUserStockTriggerShares(tx, username, symbol, sharesStr)
+	err1 := UpdateUserStock(tx, username, symbol, shares, orderType, nil)
+	err2 := UpdateUserStockTriggerSharesAndPrice(tx, username, symbol, sharesStr, totalValue)
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()
@@ -374,11 +372,11 @@ func CancelSetTrigger(username string, symbol string, orderType string) (err err
 	}
 
 	isSell := strings.Compare(orderType, "sell") == 0
-	var err1 error
+	var err1 error = nil
 
 	tx, err := db.Begin()
 
-	if isSell {
+	if isSell && shares > 0 {
 		orderType := "buy"
 		//adds stock back
 		err1 = UpdateUserStock(tx, username, symbol, int(shares), orderType, nil)

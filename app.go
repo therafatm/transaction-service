@@ -365,24 +365,41 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-	stock := vars["stock"]
+	symbol := vars["stock"]
 	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
 	orderType := "sell"
 
-	_, _, err := dbutils.QueryUser(username)
+	// confirm that user has enough valued stock
+	// to complete sell
 
+	_, userShares, err := dbutils.QueryUserStock(username, symbol)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Write([]byte("Invalid user."))
+			w.Write([]byte("User has no shares of this stock."))
 			return
 		}
 		utils.LogErr(err)
-		w.Write([]byte("Error getting user data."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = dbactions.SetUserOrderTypeAmount(nil, username, stock, orderType, sellAmount, nil)
+	body, err := dbutils.QueryQuote(username, symbol)
+	if err != nil {
+		utils.LogErr(err)
+		w.Write([]byte("Error getting stock quote.\n"))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
+	balance := quote * float64(userShares)
+
+	if balance < sellAmount {
+		w.Write([]byte("Insufficent balance to sell stock."))
+		return
+	}
+
+	err = dbactions.SetUserOrderTypeAmount(nil, username, symbol, orderType, sellAmount, nil)
 
 	if err != nil {
 		w.Write([]byte("Error setting SET SELL amount."))
@@ -405,11 +422,11 @@ func setSellTrigger(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Write([]byte("Invalid user."))
+			w.Write([]byte("SET SELL AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
 			return
 		}
 		utils.LogErr(err)
-		w.Write([]byte("Error getting user data."))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
