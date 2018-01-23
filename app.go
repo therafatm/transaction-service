@@ -23,12 +23,13 @@ var db *sql.DB
 
 func connectToDB() *sql.DB {
 	var (
-		host     = "localhost"
-		port     = 5432
+		host     = os.Getenv("POSTGRES_HOST")
 		user     = os.Getenv("POSTGRES_USER")
 		password = os.Getenv("POSTGRES_PASSWORD")
-		dbname   = "transactions"
+		dbname = os.Getenv("POSTGRES_DB")
 	)
+
+	port, err := strconv.Atoi(os.Getenv("DB_PORT"))
 
 	config := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",
