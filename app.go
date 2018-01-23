@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -124,7 +125,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// cancelReservation()
+	// cancel existing reservation for the same stock, if exists
 	err = dbactions.RemoveReservation(nil, username, stock, "buy", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -158,6 +159,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte("Buy order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
+
 	// remove reservation if not bought within 60 seconds
 	go dbactions.RemoveOrder(username, stock, orderType, 60)
 }
@@ -331,6 +333,12 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	triggerPrice := vars["triggerPrice"]
 	orderType := "buy"
 
+	// invalid trigger price
+	if p, err := strconv.ParseFloat(triggerPrice, 64); p <= 0 || err != nil {
+		w.Write([]byte("Invalid trigger price. Trigger price must be greater than 0.\n"))
+		return
+	}
+
 	// check if user has SET BUY AMOUNT record in trigger DB
 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
 
@@ -348,12 +356,6 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	// trigger already exists, return error
 	if totalValue > 0 && triggerPriceDB > 0 {
 		w.Write([]byte("SET BUY TRIGGER already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
-		return
-	}
-
-	// invalid trigger price
-	if p, err := strconv.ParseFloat(triggerPrice, 64); p <= 0 || err != nil {
-		w.Write([]byte("Invalid trigger price. Trigger price must be greater than 0.\n"))
 		return
 	}
 
@@ -510,9 +512,87 @@ func cancelSetSell(w http.ResponseWriter, r *http.Request) {
 	w.Write(res)
 }
 
+func validateURLParams(r *http.Request) (err error) {
+	vars := mux.Vars(r)
+
+	username, ok := vars["username"]
+	if ok != false {
+		if len(username) <= 0 {
+			return errors.New("Invalid username\n")
+		}
+	}
+
+	stock, ok := vars["stock"]
+	if ok != false {
+		// v, err := strconv.Atoi(stock)
+		if len(stock) <= 0 {
+			return errors.New("Invalid stock\n")
+		}
+		// allows stocks to be numbers
+		// could add check for stocks not being number values
+	}
+
+	amount, ok := vars["amount"]
+	if ok != false {
+		floatAmount, err := strconv.ParseFloat(amount, 64)
+		if floatAmount <= 0 || err != nil {
+			return errors.New("Invalid amount\n")
+		}
+	}
+
+	money, ok := vars["money"]
+	if ok != false {
+		floatMoney, err := strconv.ParseFloat(money, 64)
+		if floatMoney <= 0 || err != nil {
+			return errors.New("Invalid money\n")
+		}
+	}
+
+	triggerPrice, ok := vars["triggerPrice"]
+	if ok != false {
+		floatTriggerPrice, err := strconv.ParseFloat(triggerPrice, 64)
+		if floatTriggerPrice <= 0 || err != nil {
+			return errors.New("Invalid trigger price\n")
+		}
+	}
+
+	shares, ok := vars["shares"]
+	if ok != false {
+		intShares, err := strconv.Atoi(shares)
+		if intShares <= 0 || err != nil {
+			return errors.New("Invalid number of shares\n")
+		}
+	}
+
+	orderType, ok := vars["orderType"]
+	if ok != false {
+		if len(orderType) <= 0 {
+			return errors.New("Invalid order type\n")
+		}
+	}
+
+	totalValue, ok := vars["totalValue"]
+	if ok != false {
+		floatTotalValue, err := strconv.ParseFloat(totalValue, 64)
+		if floatTotalValue <= 0 || err != nil {
+			return errors.New("Invalid totalValue\n")
+		}
+	}
+
+	err = nil
+	return err
+}
+
 func logHandler(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
+		err := validateURLParams(r)
+		if err != nil {
+			utils.LogErr(err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		log.Println(l)
 		fn(w, r)
 	}

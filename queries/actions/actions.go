@@ -72,6 +72,7 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 		return
 	}
 
+	// adjust shares depending on order type
 	if strings.Compare(orderType, "buy") == 0 {
 		currentShares += shares
 	} else {
