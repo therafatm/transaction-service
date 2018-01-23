@@ -83,7 +83,10 @@ func QueryUserStockTrigger(username string, stock string, orderType string) (str
 
 func QueryAndExecuteCurrentTriggers() {
 
-	query := "SELECT username, symbol, type, shares, amount,triggerprice FROM triggers WHERE triggerprice IS NOT NULL"
+	query := `SELECT username, symbol, type, shares, amount, trigger_price 
+				FROM triggers 
+					WHERE trigger_price IS NOT NULL AND amount IS NOT NULL`
+
 	rows, err := db.Query(query)
 
 	if err != nil {
@@ -106,6 +109,7 @@ func QueryAndExecuteCurrentTriggers() {
 
 		isSell := strings.Compare(orderType, "sell") == 0
 		if (isSell && shares.Int64 > 0) || (!isSell && triggerValue.Float64 > 0) {
+			log.Println("Executing trigger (username,stock):")
 			log.Println(username)
 			log.Println(symbol)
 			quoteStr, err := QueryQuote(username, symbol)
@@ -113,7 +117,6 @@ func QueryAndExecuteCurrentTriggers() {
 				quote, _ := strconv.ParseFloat(strings.Split(string(quoteStr), ",")[0], 64)
 				if quote <= triggerValue.Float64 {
 					url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
-					log.Println(url)
 					go http.Get(url)
 				}
 			} else {

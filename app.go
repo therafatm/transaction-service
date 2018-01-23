@@ -13,6 +13,8 @@ import (
 	"./queries/utils"
 	"./utils"
 
+	"./triggers/triggermanager"
+
 	"github.com/gorilla/mux"
 	// "github.com/phayes/freeport"
 	_ "github.com/lib/pq"
@@ -553,7 +555,7 @@ func main() {
 
 	http.Handle("/", router)
 
-	// go triggermanager.Manage()
+	go triggermanager.Manage()
 
 	if err := http.ListenAndServe(":"+strconv.Itoa(port), nil); err != nil {
 		log.Fatal(err)

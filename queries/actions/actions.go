@@ -72,9 +72,6 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 		return
 	}
 
-	log.Println(currentShares)
-	log.Println(shares)
-
 	if strings.Compare(orderType, "buy") == 0 {
 		currentShares += shares
 	} else {
@@ -83,6 +80,9 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 
 	query := "UPDATE stocks SET shares=$1 WHERE username=$2 AND symbol=$3"
 	_, err = tx.Exec(query, currentShares, username, symbol)
+
+	log.Println(currentShares)
+	log.Println(shares)
 
 	if channel != nil {
 		channel <- err
@@ -407,10 +407,9 @@ func CancelSetTrigger(username string, symbol string, orderType string) (err err
 
 func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) (err error) {
 
-	var err3 error = nil
 	var sharesInt int
-	queryResults := make(chan error)
-	isSellOrder := strings.Compare(orderType, "sell") > 0
+	isSellOrder := strings.Compare(orderType, "sell") == 0
+
 	if !isSellOrder {
 		sharesInt = int(totalValue / triggerValue)
 	} else {
@@ -419,16 +418,26 @@ func ExecuteTrigger(username string, symbol string, shares string, totalValue fl
 
 	tx, err := db.Begin()
 
-	err1 := UpdateUserStock(tx, username, symbol, sharesInt, orderType, queryResults)
-	err2 := RemoveUserStockTrigger(tx, username, symbol, orderType, queryResults)
-	if isSellOrder {
-		err3 = UpdateUserMoney(tx, username, totalValue, orderType, queryResults)
+	err1 := UpdateUserStock(tx, username, symbol, sharesInt, orderType, nil)
+	if err1 != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return
 	}
 
-	if err != nil || err1 != nil || err2 != nil || err3 != nil {
+	err2 := RemoveUserStockTrigger(tx, username, symbol, orderType, nil)
+	if err2 != nil {
+		utils.LogErr(err2)
 		tx.Rollback()
-		err = errors.New("Error querying within transaction.")
 		return
+	}
+
+	if isSellOrder {
+		err3 := UpdateUserMoney(tx, username, totalValue, orderType, nil)
+		if err3 != nil {
+			tx.Rollback()
+			return
+		}
 	}
 
 	err = tx.Commit()
