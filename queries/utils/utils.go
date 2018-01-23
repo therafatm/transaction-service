@@ -127,9 +127,9 @@ func QueryAndExecuteCurrentTriggers() {
 func QueryLastReservation(username string, orderType string) (string, int, float64, error) {
 	var symbol string
 	var shares int
-	var faceValue float64
+	var amount float64
 
-	query := "SELECT symbol, shares, face_value FROM reservations WHERE username=$1 and type=$2 ORDER BY (time) DESC LIMIT 1"
-	err := db.QueryRow(query, username, orderType).Scan(&symbol, &shares, &faceValue)
-	return symbol, shares, faceValue, err
+	query := "SELECT symbol, shares, amount FROM reservations WHERE username=$1 and type=$2 ORDER BY (time) DESC LIMIT 1"
+	err := db.QueryRow(query, username, orderType).Scan(&symbol, &shares, &amount)
+	return symbol, shares, amount, err
 }

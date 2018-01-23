@@ -17,7 +17,7 @@ CREATE TABLE Reservations (
     symbol VARCHAR(10),
     type VARCHAR(10),
     shares INTEGER NOT NULL,
-    face_value DOUBLE PRECISION NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
     time BIGINT NOT NULL
 );
 

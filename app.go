@@ -105,6 +105,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 
 	_, balance, err := dbutils.QueryUser(username)
 
+	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user.\n"))
@@ -122,6 +123,14 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// cancelReservation()
+	err = dbactions.RemoveReservation(nil, username, stock, "buy", nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// addReservation()
 	body, err := dbutils.QueryQuote(username, stock)
 	if err != nil {
 		utils.LogErr(err)
@@ -138,23 +147,24 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
 	buyUnits := int(buyAmount / quote)
 
-	_, err = dbactions.AddReservation(username, stock, "buy", buyUnits, quote)
+	err = dbactions.BuyOrderTx(username, stock, "buy", buyUnits, buyAmount)
 
 	if err != nil {
 		utils.LogErr(err)
-		w.Write([]byte("Error reserving stock."))
+		w.Write([]byte("Error setting buy amount."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Write([]byte("Buy order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-	go dbactions.RemoveOrder(username, stock, orderType, buyUnits, quote)
+	// remove reservation if not bought within 60 seconds
+	go dbactions.RemoveOrder(username, stock, orderType, 60)
 }
 
 func commitBuy(w http.ResponseWriter, r *http.Request) {
 	const orderType = "buy"
 	var requestParams = mux.Vars(r)
-	err := dbactions.CommitTransaction(requestParams["username"], orderType)
+	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -165,6 +175,34 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func cancelBuy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	err := dbactions.RemoveLastOrderTypeReservation(username, "buy")
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	res := []byte("Successfully cancelled most recent BUY command\n")
+	w.Write(res)
+}
+
+func cancelSell(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	err := dbactions.RemoveLastOrderTypeReservation(username, "sell")
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	res := []byte("Successfully cancelled most recent SELL command\n")
+	w.Write(res)
+}
+
 func sellOrder(w http.ResponseWriter, r *http.Request) {
 	const orderType = "sell"
 	var userShares int
@@ -173,6 +211,9 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	username := vars["username"]
 	stock := vars["stock"]
 	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+
+	// confirm that user has enough valued stock
+	// to complete sell
 
 	_, userShares, err := dbutils.QueryUserStock(username, stock)
 
@@ -202,8 +243,17 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = dbactions.AddReservation(username, stock, orderType, userShares, quote)
+	// cancel existing sell reservation for this stock
+	err = dbactions.RemoveReservation(nil, username, stock, "sell", nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
+	// add new reservation
+	sellUnits := int(sellAmount / quote)
+
+	err = dbactions.AddReservation(nil, username, stock, orderType, sellUnits, sellAmount, nil)
 	if err != nil {
 		utils.LogErr(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -211,13 +261,13 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-	go dbactions.RemoveOrder(username, stock, orderType, userShares, quote)
+	go dbactions.RemoveOrder(username, stock, orderType, 60)
 }
 
 func commitSell(w http.ResponseWriter, r *http.Request) {
 	const orderType = "sell"
 	var requestParams = mux.Vars(r)
-	err := dbactions.CommitTransaction(requestParams["username"], orderType)
+	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
 
 	if err != nil {
 		utils.LogErr(err)
@@ -238,6 +288,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 
 	_, userBalance, err := dbutils.QueryUser(username)
 
+	// check that user has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user."))
@@ -257,12 +308,16 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 
 	err = dbactions.CancelSetTrigger(username, stock, orderType)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		// Legitimate DB error
+		// If sql.ErrNoRows is returned, no trigger exists so continue
+		if err != sql.ErrNoRows {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	log.Println("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
-	err = dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
+	err = dbactions.SetUserOrderTypeAmount(nil, username, stock, orderType, buyAmount, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -442,23 +497,24 @@ func main() {
 
 	log.Println("Running transaction server on port: " + strconv.Itoa(port))
 
-	router.HandleFunc("/api/getQuote/{username}/{stock}", logHandler(getQuoute))
 	router.HandleFunc("/api/addUser/{username}/{money}", logHandler(addUser))
-	router.HandleFunc("/api/buyOrder/{username}/{stock}/{amount}", logHandler(buyOrder))
+	router.HandleFunc("/api/getQuote/{username}/{stock}", logHandler(getQuoute))
+
+	router.HandleFunc("/api/buy/{username}/{stock}/{amount}", logHandler(buyOrder))
 	router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
-	router.HandleFunc("/api/sellOrder/{username}/{stock}/{amount}", logHandler(sellOrder))
+	router.HandleFunc("/api/cancelBuy/{username}", logHandler(cancelBuy))
+
+	router.HandleFunc("/api/sell/{username}/{stock}/{amount}", logHandler(sellOrder))
 	router.HandleFunc("/api/commitSell/{username}", logHandler(commitSell))
+	router.HandleFunc("/api/cancelSell/{username}", logHandler(cancelSell))
 
 	router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", logHandler(setBuyAmount))
-	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", logHandler(setBuyTrigger))
-	router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
-	router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
-
-	router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
-	router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
-
-	router.HandleFunc("/api/cancelSetSell/{username}/{stock}", logHandler(cancelSetSell))
 	router.HandleFunc("/api/cancelSetBuy/{username}/{stock}", logHandler(cancelSetBuy))
+	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", logHandler(setBuyTrigger))
+
+	router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
+	router.HandleFunc("/api/cancelSetSell/{username}/{stock}", logHandler(cancelSetSell))
+	router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
 
 	router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", logHandler(executeTrigger))
 

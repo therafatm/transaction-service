@@ -38,11 +38,21 @@ func UpdateUser(username string, money string) (err error) {
 	return
 }
 
-func AddReservation(username string, stock string, orderType string, shares int, faceValue float64) (res sql.Result, err error) {
+func AddReservation(tx *sql.Tx, username string, stock string, orderType string, shares int, amount float64, queryResults chan error) (err error) {
 	// time in seconds
 	time := time.Now().Unix()
-	query := "INSERT INTO reservations(username, symbol, type, shares, face_value, time) VALUES($1,$2,$3,$4,$5,$6)"
-	res, err = db.Exec(query, username, stock, orderType, shares, faceValue, time)
+	query := "INSERT INTO reservations(username, symbol, type, shares, amount, time) VALUES($1,$2,$3,$4,$5,$6)"
+
+	if tx == nil {
+		_, err = db.Exec(query, username, stock, orderType, shares, amount, time)
+	} else {
+		_, err = db.Exec(query, username, stock, orderType, shares, amount, time)
+	}
+
+	if queryResults != nil {
+		queryResults <- err
+	}
+
 	return
 }
 
@@ -62,6 +72,9 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 		utils.LogErr(err)
 		return
 	}
+
+	log.Println(currentShares)
+	log.Println(shares)
 
 	if strings.Compare(orderType, "buy") == 0 {
 		currentShares += shares
@@ -101,8 +114,10 @@ func UpdateUserMoney(tx *sql.Tx, username string, money float64, orderType strin
 	query := "UPDATE users SET money=$1 WHERE username=$2"
 	if tx == nil {
 		_, err = db.Exec(query, balance, username)
+		log.Println("hey now")
 	} else {
 		_, err = tx.Exec(query, balance, username)
+		log.Println("brown cow")
 	}
 
 	if channel != nil {
@@ -117,12 +132,12 @@ func UpdateUserMoney(tx *sql.Tx, username string, money float64, orderType strin
 	return
 }
 
-func RemoveReservation(tx *sql.Tx, username string, stock string, reservationType string, shares int, faceValue float64, channel chan error) (err error) {
-	query := "DELETE FROM reservations WHERE username=$1 AND symbol=$2 AND shares=$3 AND face_value=$4 AND type=$5"
+func RemoveReservation(tx *sql.Tx, username string, stock string, orderType string, channel chan error) (err error) {
+	query := "DELETE FROM reservations WHERE username=$1 AND symbol=$2 AND type=$3"
 	if tx == nil {
-		_, err = db.Exec(query, username, stock, shares, faceValue, reservationType)
+		_, err = db.Exec(query, username, stock, orderType)
 	} else {
-		_, err = tx.Exec(query, username, stock, shares, faceValue, reservationType)
+		_, err = tx.Exec(query, username, stock, orderType)
 	}
 
 	if channel != nil {
@@ -137,13 +152,30 @@ func RemoveReservation(tx *sql.Tx, username string, stock string, reservationTyp
 	return
 }
 
-func RemoveOrder(username string, stock string, reservationType string, shares int, faceValue float64) {
-	time.Sleep(60 * time.Second)
-	err := RemoveReservation(nil, username, stock, reservationType, shares, faceValue, nil)
+func RemoveOrder(username string, stock string, orderType string, timeout time.Duration) {
+	time.Sleep(timeout * time.Second)
+
+	err := RemoveReservation(nil, username, stock, orderType, nil)
 	if err != nil {
 		log.Println("Error removing reservation due to timeout.")
 		utils.LogErr(err)
 	}
+}
+
+func RemoveLastOrderTypeReservation(username string, orderType string) (err error) {
+
+	query := `DELETE FROM reservations WHERE rid IN ( 
+				SELECT rid FROM reservations WHERE username=$1 AND type=$2 ORDER BY time DESC LIMIT(1) 
+			 )`
+
+	_, err = db.Exec(query, username, orderType)
+
+	if err != nil {
+		utils.LogErr(err)
+	}
+
+	log.Println("Finished updating reservations")
+	return
 }
 
 func SetUserOrderTypeAmount(tx *sql.Tx, username string, stock string, orderType string, amount float64, channel chan error) (err error) {
@@ -223,28 +255,23 @@ func UpdateUserStockTriggerShares(tx *sql.Tx, username string, stock string, sha
 	return
 }
 
-func CommitTransaction(username string, orderType string) (err error) {
+func CommitBuySellTransaction(username string, orderType string) (err error) {
 	var symbol string
 	var shares int
-	var faceValue float64
+	var amount float64
 
-	symbol, shares, faceValue, err = dbutils.QueryLastReservation(username, orderType)
+	symbol, shares, amount, err = dbutils.QueryLastReservation(username, orderType)
 
 	if err != nil {
 		utils.LogErr(err)
 		return
 	}
 
-	amount := float64(shares) * faceValue
-	queryResults := make(chan error)
-
 	tx, err := db.Begin()
 
-	go UpdateUserStock(tx, username, symbol, shares, orderType, queryResults)
-	go UpdateUserMoney(tx, username, amount, orderType, queryResults)
-	go RemoveReservation(tx, username, symbol, orderType, shares, faceValue, queryResults)
-
-	err1, err2, err3 := <-queryResults, <-queryResults, <-queryResults
+	err1 := UpdateUserStock(tx, username, symbol, shares, orderType, nil)
+	err2 := UpdateUserMoney(tx, username, amount, orderType, nil)
+	err3 := RemoveReservation(tx, username, symbol, orderType, nil)
 
 	if err != nil || err1 != nil || err2 != nil || err3 != nil {
 		tx.Rollback()
@@ -262,21 +289,15 @@ func CommitTransaction(username string, orderType string) (err error) {
 	return
 }
 
-func CommitSetBuyAmountTx(username string, symbol string, orderType string, buyAmount float64) (err error) {
+func BuyOrderTx(username string, symbol string, orderType string, buyUnits int, buyAmount float64) (err error) {
 
-	queryResults := make(chan error)
 	tx, err := db.Begin()
 
-	go UpdateUserMoney(tx, username, buyAmount, orderType, queryResults)
-	go SetUserOrderTypeAmount(tx, username, symbol, orderType, buyAmount, queryResults)
+	err1 := AddReservation(tx, username, symbol, orderType, buyUnits, buyAmount, nil)
 
-	err1, err2 := <-queryResults, <-queryResults
-
-	if err != nil || err1 != nil || err2 != nil {
+	if err != nil || err1 != nil {
 		tx.Rollback()
-		utils.LogErr(err)
-		utils.LogErr(err1)
-		utils.LogErr(err2)
+		err = errors.New("Error querying within transaction.\n")
 		return
 	}
 
@@ -307,13 +328,11 @@ func SetSellTrigger(username string, symbol string, totalValue float64, triggerP
 	shares := int(totalValue / triggerPrice)
 	sharesStr := strconv.Itoa(shares)
 	totalValueStr := fmt.Sprintf("%f", totalValue)
-	queryResults := make(chan error)
+
 	tx, err := db.Begin()
 
-	go UpdateUserStock(tx, username, totalValueStr, shares, orderType, queryResults)
-	go UpdateUserStockTriggerShares(tx, username, symbol, sharesStr)
-
-	err1, err2 := <-queryResults, <-queryResults
+	err1 := UpdateUserStock(tx, username, totalValueStr, shares, orderType, nil)
+	err2 := UpdateUserStockTriggerShares(tx, username, symbol, sharesStr)
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()
@@ -335,28 +354,31 @@ func SetSellTrigger(username string, symbol string, totalValue float64, triggerP
 func CancelSetTrigger(username string, symbol string, orderType string) (err error) {
 
 	_, shares, totalValue, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
-	isSell := strings.Compare(orderType, "sell") == 0
-	//adds stock back
+	if err != nil {
+		// DB error or no trigger exists
+		return
+	}
 
-	queryResults := make(chan error)
+	isSell := strings.Compare(orderType, "sell") == 0
+	var err1 error
+
 	tx, err := db.Begin()
 
 	if isSell {
 		orderType := "buy"
 		//adds stock back
-		go UpdateUserStock(tx, username, symbol, int(shares), orderType, queryResults)
+		err1 = UpdateUserStock(tx, username, symbol, int(shares), orderType, nil)
 	} else {
-		orderType := "buy"
+		orderType := "sell"
 		//adds money back
-		go UpdateUserMoney(tx, username, totalValue, orderType, queryResults)
+		err1 = UpdateUserMoney(tx, username, totalValue, orderType, nil)
 	}
 
-	go RemoveUserStockTrigger(tx, username, symbol, orderType, queryResults)
-
-	err1, err2 := <-queryResults, <-queryResults
+	err2 := RemoveUserStockTrigger(tx, username, symbol, orderType, nil)
 
 	if err != nil || err1 != nil || err2 != nil {
 		tx.Rollback()
+		err = errors.New("error querying within transaction")
 		return
 	}
 
@@ -384,15 +406,10 @@ func ExecuteTrigger(username string, symbol string, shares string, totalValue fl
 
 	tx, err := db.Begin()
 
-	go UpdateUserStock(tx, username, symbol, sharesInt, orderType, queryResults)
-	go RemoveUserStockTrigger(tx, username, symbol, orderType, queryResults)
+	err1 := UpdateUserStock(tx, username, symbol, sharesInt, orderType, queryResults)
+	err2 := RemoveUserStockTrigger(tx, username, symbol, orderType, queryResults)
 	if isSellOrder {
-		go UpdateUserMoney(tx, username, totalValue, orderType, queryResults)
-	}
-
-	err1, err2 := <-queryResults, <-queryResults
-	if isSellOrder {
-		err3 = <-queryResults
+		err3 = UpdateUserMoney(tx, username, totalValue, orderType, queryResults)
 	}
 
 	if err != nil || err1 != nil || err2 != nil || err3 != nil {
