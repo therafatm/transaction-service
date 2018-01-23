@@ -46,6 +46,7 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Write([]byte("Error getting quote.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte(body))
@@ -64,6 +65,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				w.Write([]byte("Failed to add user " + username + ".\n"))
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			} else {
 				w.Write([]byte("Successfully added user " + username))
 				return
@@ -72,6 +74,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 
 		w.Write([]byte("Failed to add user " + username + ".\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	//add money to existing user
@@ -84,6 +87,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Write([]byte("Failed to update user " + username + ".\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Successfully added user " + username))
@@ -105,10 +109,12 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user.\n"))
 			http.Error(w, err.Error(), http.StatusForbidden)
+			return
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if balance < buyAmount {
@@ -122,9 +128,11 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		if body != nil {
 			w.Write([]byte("Error getting stock quote.\n"))
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		w.Write([]byte("Error converting quote to string.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
@@ -136,6 +144,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		utils.LogErr(err)
 		w.Write([]byte("Error reserving stock."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Buy order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
@@ -149,6 +158,7 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Sucessfully comitted transaction."))
@@ -173,6 +183,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.LogErr(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	body, err := dbutils.QueryQuote(username, stock)
@@ -180,6 +191,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 		utils.LogErr(err)
 		w.Write([]byte("Error getting stock quote.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
@@ -195,6 +207,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.LogErr(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
@@ -209,6 +222,7 @@ func commitSell(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.LogErr(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Sucessfully comitted transaction."))
@@ -232,6 +246,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if userBalance < buyAmount {
@@ -243,15 +258,17 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 	err = dbactions.CancelSetTrigger(username, stock, orderType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	log.Println("Sucessfully comitted CANCEL SET " + orderType + " TRIGGER transaction.")
 	err = dbactions.CommitSetBuyAmountTx(username, stock, orderType, buyAmount)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	m := string("Sucessfully comitted SET BUY transaction.")
+	m := string("Sucessfully comitted SET BUY AMOUNT transaction.")
 
 	w.Write([]byte(m))
 	return
@@ -274,6 +291,7 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	err = dbactions.SetBuyTrigger(username, stock, triggerPrice)
@@ -281,6 +299,7 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Write([]byte("Failed to SET BUY trigger.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Successfully SET BUY trigger."))
@@ -304,6 +323,7 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	err = dbactions.SetUserOrderTypeAmount(nil, username, stock, orderType, sellAmount, nil)
@@ -311,6 +331,7 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Write([]byte("Error setting SET SELL amount."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Successfully SET SELL amount"))
@@ -342,6 +363,7 @@ func setSellTrigger(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Write([]byte("Successfully SET SELL trigger."))
@@ -361,6 +383,7 @@ func executeTrigger(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	res := []byte("Sucessfully executed SET " + orderType + " trigger.")
@@ -376,6 +399,7 @@ func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	res := []byte("Successfully cancelled SET BUY\n")
@@ -390,6 +414,7 @@ func cancelSetSell(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	res := []byte("Successfully cancelled SET SELL\n")

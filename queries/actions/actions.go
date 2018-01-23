@@ -47,6 +47,7 @@ func AddReservation(username string, stock string, orderType string, shares int,
 }
 
 func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, orderType string, channel chan error) (err error) {
+
 	_, currentShares, err := dbutils.QueryUserStock(username, symbol)
 
 	if err != nil {
@@ -54,6 +55,8 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 		if err == sql.ErrNoRows {
 			query := "INSERT INTO stocks(username,symbol,shares) VALUES($1,$2,$3)"
 			_, err = tx.Exec(query, username, symbol, shares)
+			log.Println("Finished updating stock")
+			utils.LogErr(err)
 			return
 		}
 		utils.LogErr(err)
@@ -77,6 +80,7 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 		utils.LogErr(err)
 	}
 
+	log.Println("Finished updating stock")
 	return
 }
 
@@ -108,6 +112,8 @@ func UpdateUserMoney(tx *sql.Tx, username string, money float64, orderType strin
 	if err != nil {
 		utils.LogErr(err)
 	}
+
+	log.Println("Finished updating user money.")
 	return
 }
 
@@ -126,6 +132,8 @@ func RemoveReservation(tx *sql.Tx, username string, stock string, reservationTyp
 	if err != nil {
 		utils.LogErr(err)
 	}
+
+	log.Println("Finished updating reservations")
 	return
 }
 
@@ -189,7 +197,7 @@ func RemoveUserStockTrigger(tx *sql.Tx, username string, stock string, orderType
 
 func UpdateUserStockTriggerPrice(username string, stock string, triggerPrice string) (err error) {
 
-	query := "UPDATE triggers SET triggerPrice=$1 WHERE username=$2 AND symbol=$3"
+	query := "UPDATE triggers SET trigger_price=$1 WHERE username=$2 AND symbol=$3"
 	_, err = db.Exec(query, triggerPrice, username, stock)
 
 	if err != nil {
@@ -237,6 +245,7 @@ func CommitTransaction(username string, orderType string) (err error) {
 	go RemoveReservation(tx, username, symbol, orderType, shares, faceValue, queryResults)
 
 	err1, err2, err3 := <-queryResults, <-queryResults, <-queryResults
+
 	if err != nil || err1 != nil || err2 != nil || err3 != nil {
 		tx.Rollback()
 		err = errors.New("Error querying within transaction.\n")
