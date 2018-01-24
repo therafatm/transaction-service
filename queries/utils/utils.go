@@ -33,7 +33,7 @@ func QueryQuote(username string, stock string) (body []byte, err error) {
 	res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
 
 	if err != nil {
-		utils.LogErr(err)
+		return
 	} else {
 		body, err = ioutil.ReadAll(res.Body)
 		log.Println(string(body))
@@ -47,27 +47,19 @@ func QueryUserAvailableBalance(username string) ( balance int, err error) {
 			 (SELECT COALESCE(SUM(amount), 0) FROM RESERVATIONS WHERE username = $1)
 			 as available_balance;`
 	err = db.QueryRow(query, username).Scan(&balance)
-	if err != nil {
-		utils.LogErr(err)
-	}
 	return
 }
 
 func QueryUser(username string) (user models.User, err error) {
 	query := "SELECT uid, username, money FROM users WHERE username = $1"
 	err = db.QueryRow(query, username).Scan(&user.ID, &user.Username, &user.Money)
-	if err != nil {
-		utils.LogErr(err)
-	}
 	return
 }
 
-func QueryUserStock(username string, symbol string) (string, int, error) {
-	var sid string
-	var shares int
-	query := "SELECT sid, shares FROM stocks WHERE username = $1 AND symbol = $2"
-	err := db.QueryRow(query, username, symbol).Scan(&sid, &shares)
-	return sid, shares, err
+func QueryUserStock(username string, symbol string) (stock models.Stock, err error) {
+	query := "SELECT sid, username, symbol, shares FROM stocks WHERE username = $1 AND symbol = $2"
+	err = db.QueryRow(query, username, symbol).Scan(&stock.ID, &stock.Username, &stock.Symbol, &stock.Shares)
+	return stock, err
 }
 
 func QueryUserStockTrigger(username string, stock string, orderType string) (string, int64, float64, float64, error) {
@@ -82,7 +74,6 @@ func QueryUserStockTrigger(username string, stock string, orderType string) (str
 		if err == sql.ErrNoRows {
 			log.Println("Trigger does not exist.")
 		}
-		utils.LogErr(err)
 		return string(""), -1, -1, -1, err
 	}
 
@@ -98,7 +89,7 @@ func QueryAndExecuteCurrentTriggers() {
 	rows, err := db.Query(query)
 
 	if err != nil {
-		utils.LogErr(err)
+		return
 	}
 
 	defer rows.Close()
@@ -140,15 +131,11 @@ func QueryAndExecuteCurrentTriggers() {
 func QueryReservation(username string, symbol string, resType models.OrderType) (res models.Reservation, err error) {
 	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE username=$1 and symbol=$2 and type=$3"
 	err = db.QueryRow(query, username, symbol, resType).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
-	return res, err
+	return
 }
 
-func QueryLastReservation(username string, orderType string) (string, int, float64, error) {
-	var symbol string
-	var shares int
-	var amount float64
-
-	query := "SELECT symbol, shares, amount FROM reservations WHERE username=$1 and type=$2 ORDER BY (time) DESC LIMIT 1"
-	err := db.QueryRow(query, username, orderType).Scan(&symbol, &shares, &amount)
-	return symbol, shares, amount, err
+func QueryLastReservation(username string, resType models.OrderType) (res models.Reservation, err error) {
+	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE username=$1 and type=$2 ORDER BY (time) DESC LIMIT 1"
+	err = db.QueryRow(query, username, resType).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
+	return
 }

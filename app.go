@@ -2,7 +2,7 @@ package main
 
 import (
 	"database/sql"
-	// "errors"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -46,8 +46,9 @@ func connectToDB() *sql.DB {
 	return db
 }
 
-func respondWithError(w http.ResponseWriter, code int, err string, message string) {
-    respondWithJSON(w, code, map[string]string{"error": err, "message": message})
+func respondWithError(w http.ResponseWriter, code int, err error, message string) {
+	utils.LogErr(err)
+    respondWithJSON(w, code, map[string]string{"error": err.Error(), "message": message})
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -58,6 +59,7 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
     w.Write(response)
 }
 
+//TODO: refactor  + test
 func getQuoute(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	body, err := dbutils.QueryQuote(vars["username"], vars["stock"])
@@ -75,12 +77,13 @@ func clearUsers(w http.ResponseWriter, r *http.Request) {
 	err := dbactions.ClearUsers()
 	if err != nil {
 		errMsg := "Failed to clear users"
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
     w.Write([]byte("Cleared users succesfully."))
 }
+
 
 func addUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -90,7 +93,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 
 	money, err := strconv.Atoi(moneyStr)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -101,13 +104,13 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		newUser := models.User{Username: username, Money: money}
 		err := dbactions.InsertUser(newUser)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg)
 			return
 		}
 
 	} else if err != nil {
 		// error
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return 
 
 	}else{
@@ -116,17 +119,45 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		err = dbactions.UpdateUser(user)
 
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg)
 			return
 		}
 	}
 
 	user, err = dbutils.QueryUser(username)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 	respondWithJSON(w, http.StatusOK, user)
+}
+
+func availableBalance(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+
+	_, err := dbutils.QueryUser(username)
+	if err != nil && err == sql.ErrNoRows {
+		errMsg := fmt.Sprintf("No such user %s exists.", username)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}else if err != nil {
+		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}
+
+	balance, err := dbutils.QueryUserAvailableBalance(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}
+	var m map[string]int
+	m = make(map[string]int)
+	m["balance"] = balance
+
+	respondWithJSON(w, http.StatusOK, m)
 }
 
 func buyOrder(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +168,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -147,18 +178,19 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg)
 			return
 		}
 
 		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
 	if balance < buyAmount {
 		errMsg := fmt.Sprintf("User does not have enough money to complete order.")
-		respondWithError(w, http.StatusInternalServerError, "", errMsg)
+		err = errors.New("Error not enough money.")
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -167,7 +199,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	err = dbactions.RemoveReservation(nil, username, symbol, models.BUY)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to cancel previous buy order for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -176,11 +208,11 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if body != nil {
 			errMsg := "Error getting stock quote for user."
-			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg)
 			return
 		}
 		errMsg := "Error converting quote to string."
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -188,7 +220,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	quote, err := strconv.Atoi(priceStr)
 	if err != nil {
 		errMsg := "Error reading stock quote."
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -200,14 +232,14 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	err = dbactions.BuyOrderTx(reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
 	res, err := dbutils.QueryReservation(username, symbol, models.BUY)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
-		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
@@ -217,33 +249,62 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	go dbactions.RemoveOrder(reservation.Username, reservation.Symbol, reservation.Order, 60)
 }
 
-// func commitBuy(w http.ResponseWriter, r *http.Request) {
-// 	const orderType = "buy"
-// 	var requestParams = mux.Vars(r)
-// 	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
+func commitBuy(w http.ResponseWriter, r *http.Request) {
+	var requestParams = mux.Vars(r)
+	username := requestParams["username"]
 
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
+	res, err := dbutils.QueryLastReservation(username, models.BUY)
+	if err != nil && err == sql.ErrNoRows {
+		errMsg := "No reserved buy order to commit."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}else if err != nil {
+		errMsg := "Error finding last buy reservation."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}
 
-// 	w.Write([]byte("Sucessfully comitted transaction."))
-// 	return
-// }
+	err = dbactions.CommitBuySellTransaction(res)
+	if err != nil {
+		errMsg := "Error commiting order."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}
 
-// func cancelBuy(w http.ResponseWriter, r *http.Request) {
-// 	vars := mux.Vars(r)
-// 	username := vars["username"]
-// 	err := dbactions.RemoveLastOrderTypeReservation(username, "buy")
+	stock, err := dbutils.QueryUserStock(res.Username, res.Symbol)
+	if err != nil {
+		errMsg := "Error could not find updated stock."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+	}
 
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
+	respondWithJSON(w, http.StatusOK, stock)
+	return
+}
 
-// 	res := []byte("Successfully cancelled most recent BUY command\n")
-// 	w.Write(res)
-// }
+func cancelBuy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+
+	res, err := dbutils.QueryLastReservation(username, models.BUY)
+	if err != nil && err == sql.ErrNoRows {
+		errMsg := "No reserved buy order to delete."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}else if err != nil {
+		errMsg := "Error finding last buy reservation."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
+	}
+
+	err = dbactions.RemoveLastOrderTypeReservation(username, models.BUY)
+	if err != nil {
+		errMsg := "Error deleting last buy reservation."
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+	}
+
+	respondWithJSON(w, http.StatusOK, res)
+	return
+}
 
 // func cancelSell(w http.ResponseWriter, r *http.Request) {
 // 	vars := mux.Vars(r)
@@ -594,13 +655,15 @@ func main() {
 
 	
 	router.HandleFunc("/api/clearUsers", logHandler(clearUsers))
+	router.HandleFunc("/api/availableBalance/{username}", logHandler(availableBalance))
+
 
 	router.HandleFunc("/api/add/{username}/{money}", logHandler(addUser))
 	router.HandleFunc("/api/getQuote/{username}/{stock}", logHandler(getQuoute))
 
 	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}", logHandler(buyOrder))
-	// router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
-	// router.HandleFunc("/api/cancelBuy/{username}", logHandler(cancelBuy))
+	router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
+	router.HandleFunc("/api/cancelBuy/{username}", logHandler(cancelBuy))
 
 	// router.HandleFunc("/api/sell/{username}/{stock}/{amount}", logHandler(sellOrder))
 	// router.HandleFunc("/api/commitSell/{username}", logHandler(commitSell))

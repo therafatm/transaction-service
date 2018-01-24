@@ -23,3 +23,9 @@ type Reservation struct {
 	Time int64 				`json:"time"`
 }
 
+type Stock struct {
+	ID int 					`json:"id"`
+	Username string			`json:"username"`
+	Symbol string 			`json:"symbol"`
+	Shares int  			`json:"shares"`
+}

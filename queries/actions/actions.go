@@ -2,14 +2,13 @@ package dbactions
 
 import (
 	"database/sql"
-	"errors"
 	"log"
 	//"strconv"
 	//"strings"
 	"time"
 	"fmt"
 
-	//"transaction_service/queries/utils"
+	"transaction_service/queries/utils"
 	"transaction_service/queries/models"
 	"transaction_service/utils"
 )
@@ -49,7 +48,7 @@ func UpdateUser(user models.User) (err error) {
 	return
 }
 
-func AddReservation(tx *sql.Tx, res models.Reservation, queryResults chan error) (err error) {
+func AddReservation(tx *sql.Tx, res models.Reservation) (err error) {
 	query := "INSERT INTO reservations(username, symbol, type, shares, amount, time) VALUES($1,$2,$3,$4,$5,$6)"
 
 	if tx == nil {
@@ -57,91 +56,52 @@ func AddReservation(tx *sql.Tx, res models.Reservation, queryResults chan error)
 	} else {
 		_, err = db.Exec(query, res.Username, res.Symbol, res.Order, res.Shares, res.Amount, res.Time)
 	}
-
-	if queryResults != nil {
-		queryResults <- err
-	}
-
 	return
 }
 
-// func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, orderType string, channel chan error) (err error) {
+func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, order models.OrderType) (err error) {
+	stock, err := dbutils.QueryUserStock(username, symbol)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			query := "INSERT INTO stocks(username,symbol,shares) VALUES($1,$2,$3)"
+			_, err = tx.Exec(query, username, symbol, shares)
+			return
+		}
+		return
+	}
 
-// 	_, currentShares, err := dbutils.QueryUserStock(username, symbol)
+	// adjust shares depending on order type
+	if order == models.BUY {
+		stock.Shares += shares
+	} else {
+		stock.Shares -= shares
+	}
 
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		if err == sql.ErrNoRows {
-// 			query := "INSERT INTO stocks(username,symbol,shares) VALUES($1,$2,$3)"
-// 			_, err = tx.Exec(query, username, symbol, shares)
-// 			log.Println("Finished updating stock")
-// 			utils.LogErr(err)
-// 			return
-// 		}
-// 		utils.LogErr(err)
-// 		return
-// 	}
+	query := "UPDATE stocks SET shares=$1 WHERE username=$2 AND symbol=$3"
+	_, err = tx.Exec(query, stock.Shares, stock.Username, stock.Symbol)
+	return
+}
 
-// 	// adjust shares depending on order type
-// 	if strings.Compare(orderType, "buy") == 0 {
-// 		currentShares += shares
-// 	} else {
-// 		currentShares -= shares
-// 	}
+func UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderType) (err error) {
+	user, err := dbutils.QueryUser(username)
+	if err != nil {
+		return
+	}
 
-// 	query := "UPDATE stocks SET shares=$1 WHERE username=$2 AND symbol=$3"
-// 	_, err = tx.Exec(query, currentShares, username, symbol)
+	if order == models.BUY {
+		user.Money -= money
+	} else {
+		user.Money += money
+	}
 
-// 	log.Println(currentShares)
-// 	log.Println(shares)
-
-// 	if channel != nil {
-// 		channel <- err
-// 	}
-
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 	}
-
-// 	log.Println("Finished updating stock")
-// 	return
-// }
-
-// func UpdateUserMoney(tx *sql.Tx, username string, money float64, orderType string, channel chan error) (err error) {
-// 	user, err := dbutils.QueryUser(username)
-// 	balance := user.Money
-
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		return
-// 	}
-
-// 	if strings.Compare(orderType, "buy") == 0 {
-// 		balance -= money
-// 	} else {
-// 		balance += money
-// 	}
-
-// 	query := "UPDATE users SET money=$1 WHERE username=$2"
-// 	if tx == nil {
-// 		_, err = db.Exec(query, balance, username)
-// 		log.Println("hey now")
-// 	} else {
-// 		_, err = tx.Exec(query, balance, username)
-// 		log.Println("brown cow")
-// 	}
-
-// 	if channel != nil {
-// 		channel <- err
-// 	}
-
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 	}
-
-// 	log.Println("Finished updating user money.")
-// 	return
-// }
+	query := "UPDATE users SET money=$1 WHERE username=$2"
+	if tx == nil {
+		_, err = db.Exec(query, user.Money, user.Username)
+	} else {
+		_, err = tx.Exec(query, user.Money, user.Username)
+	}
+	return
+}
 
 func RemoveReservation(tx *sql.Tx, username string, symbol string, resType models.OrderType) (err error) {
 	query := "DELETE FROM reservations WHERE username=$1 AND symbol=$2 AND type=$3"
@@ -159,25 +119,17 @@ func RemoveOrder(username string, stock string, orderType models.OrderType, time
 	err := RemoveReservation(nil, username, stock, orderType)
 	if err != nil {
 		log.Println("Error removing reservation due to timeout.")
-		utils.LogErr(err)
 	}
 }
 
-// func RemoveLastOrderTypeReservation(username string, orderType string) (err error) {
+func RemoveLastOrderTypeReservation(username string, orderType models.OrderType) (err error) {
+	query := `DELETE FROM reservations WHERE rid IN ( 
+				SELECT rid FROM reservations WHERE username=$1 AND type=$2 ORDER BY time DESC LIMIT(1) 
+			 )`
 
-// 	query := `DELETE FROM reservations WHERE rid IN ( 
-// 				SELECT rid FROM reservations WHERE username=$1 AND type=$2 ORDER BY time DESC LIMIT(1) 
-// 			 )`
-
-// 	_, err = db.Exec(query, username, orderType)
-
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 	}
-
-// 	log.Println("Finished updating reservations")
-// 	return
-// }
+	_, err = db.Exec(query, username, orderType)
+	return
+}
 
 // func ExecuteSetBuyAmount(username string, symbol string, orderType string, buyAmount float64) (err error) {
 
@@ -270,55 +222,53 @@ func RemoveOrder(username string, stock string, orderType models.OrderType, time
 // 	return
 // }
 
-// func CommitBuySellTransaction(username string, orderType string) (err error) {
-// 	var symbol string
-// 	var shares int
-// 	var amount float64
-
-// 	symbol, shares, amount, err = dbutils.QueryLastReservation(username, orderType)
-
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		return
-// 	}
-
-// 	tx, err := db.Begin()
-
-// 	err1 := UpdateUserStock(tx, username, symbol, shares, orderType, nil)
-// 	err2 := UpdateUserMoney(tx, username, amount, orderType, nil)
-// 	err3 := RemoveReservation(tx, username, symbol, orderType, nil)
-
-// 	if err != nil || err1 != nil || err2 != nil || err3 != nil {
-// 		tx.Rollback()
-// 		err = errors.New("Error querying within transaction.\n")
-// 		return
-// 	}
-
-// 	err = tx.Commit()
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		tx.Rollback()
-// 		return
-// 	}
-
-// 	return
-// }
-
-func BuyOrderTx(res models.Reservation) (err error) {
-
+func CommitBuySellTransaction(res models.Reservation) (err error) {
 	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
 
-	err1 := AddReservation(tx, res, nil)
-
-	if err != nil || err1 != nil {
+	err = UpdateUserStock(tx, res.Username, res.Symbol, res.Shares, res.Order)
+	if err != nil {
 		tx.Rollback()
-		err = errors.New("Error querying within transaction.\n")
+		return
+	}
+
+	err = UpdateUserMoney(tx, res.Username, res.Amount, res.Order)
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	err = RemoveReservation(tx, res.Username, res.Symbol, res.Order)
+	if err != nil {
+		tx.Rollback()
 		return
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		utils.LogErr(err)
+		tx.Rollback()
+		return
+	}
+	return
+}
+
+func BuyOrderTx(res models.Reservation) (err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	err = AddReservation(tx, res)
+	if err != nil  {
+		tx.Rollback()
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
 		tx.Rollback()
 		return
 	}
