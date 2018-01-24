@@ -11,12 +11,10 @@ import (
 	"strings"
 
 	"transaction_service/utils"
+	"transaction_service/queries/models"
 )
 
 var db *sql.DB
-
-// var quoteServerPort = os.Getenv("QUOTE_SERVER_PORT")
-var quoteServerPort = "8000"
 
 func SetUtilsDB(database *sql.DB) {
 	db = database
@@ -44,9 +42,20 @@ func QueryQuote(username string, stock string) (body []byte, err error) {
 	return
 }
 
-func QueryUser(username string) (uid string, balance float64, err error) {
-	query := "SELECT uid, money FROM users WHERE username = $1"
-	err = db.QueryRow(query, username).Scan(&uid, &balance)
+func QueryUserAvailableBalance(username string) ( balance int, err error) {
+	query := `SELECT (SELECT money FROM USERS WHERE username = $1) -
+			 (SELECT COALESCE(SUM(amount), 0) FROM RESERVATIONS WHERE username = $1)
+			 as available_balance;`
+	err = db.QueryRow(query, username).Scan(&balance)
+	if err != nil {
+		utils.LogErr(err)
+	}
+	return
+}
+
+func QueryUser(username string) (user models.User, err error) {
+	query := "SELECT uid, username, money FROM users WHERE username = $1"
+	err = db.QueryRow(query, username).Scan(&user.ID, &user.Username, &user.Money)
 	if err != nil {
 		utils.LogErr(err)
 	}
@@ -126,6 +135,12 @@ func QueryAndExecuteCurrentTriggers() {
 	}
 
 	return
+}
+
+func QueryReservation(username string, symbol string, resType models.OrderType) (res models.Reservation, err error) {
+	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE username=$1 and symbol=$2 and type=$3"
+	err = db.QueryRow(query, username, symbol, resType).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
+	return res, err
 }
 
 func QueryLastReservation(username string, orderType string) (string, int, float64, error) {

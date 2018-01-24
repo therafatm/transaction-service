@@ -2,18 +2,22 @@ package main
 
 import (
 	"database/sql"
-	"errors"
+	// "errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 	"strings"
+	"encoding/json"
 
 	"transaction_service/queries/actions"
 	"transaction_service/queries/utils"
+	"transaction_service/queries/models"
 	"transaction_service/triggers/triggermanager"
 	"transaction_service/utils"
+
 
 	"github.com/gorilla/mux"
 	// "github.com/phayes/freeport"
@@ -42,6 +46,18 @@ func connectToDB() *sql.DB {
 	return db
 }
 
+func respondWithError(w http.ResponseWriter, code int, err string, message string) {
+    respondWithJSON(w, code, map[string]string{"error": err, "message": message})
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+    response, _ := json.Marshal(payload)
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(code)
+    w.Write(response)
+}
+
 func getQuoute(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	body, err := dbutils.QueryQuote(vars["username"], vars["stock"])
@@ -55,544 +71,510 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(body))
 }
 
+func clearUsers(w http.ResponseWriter, r *http.Request) {
+	err := dbactions.ClearUsers()
+	if err != nil {
+		errMsg := "Failed to clear users"
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+    w.Write([]byte("Cleared users succesfully."))
+}
+
 func addUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-	addMoney := vars["money"]
+	moneyStr := vars["money"]
+	errMsg := fmt.Sprintf("Failed to add user %s", username)
 
-	_, balance, err := dbutils.QueryUser(username)
-
+	money, err := strconv.Atoi(moneyStr)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			err := dbactions.InsertUser(username, addMoney)
-			if err != nil {
-				w.Write([]byte("Failed to add user " + username + ".\n"))
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			} else {
-				w.Write([]byte("Successfully added user " + username))
-				return
-			}
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		return
+	}
+
+	user, err := dbutils.QueryUser(username)
+
+	if err != nil && err == sql.ErrNoRows {
+		//user no exist
+		newUser := models.User{Username: username, Money: money}
+		err := dbactions.InsertUser(newUser)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+			return
 		}
 
-		w.Write([]byte("Failed to add user " + username + ".\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	} else if err != nil {
+		// error
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		return 
+
+	}else{
+		// user exists
+		user.Money += money
+		err = dbactions.UpdateUser(user)
+
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+			return
+		}
 	}
 
-	//add money to existing user
-	addMoneyFloat, err := strconv.ParseFloat(addMoney, 64)
-	balance += addMoneyFloat
-	balanceString := fmt.Sprintf("%f", balance)
-
-	err = dbactions.UpdateUser(username, balanceString)
-
+	user, err = dbutils.QueryUser(username)
 	if err != nil {
-		w.Write([]byte("Failed to update user " + username + ".\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
-
-	w.Write([]byte("Successfully added user " + username))
-	return
+	respondWithJSON(w, http.StatusOK, user)
 }
 
 func buyOrder(w http.ResponseWriter, r *http.Request) {
-	var balance float64
-	const orderType string = "buy"
-
 	vars := mux.Vars(r)
 	username := vars["username"]
-	stock := vars["stock"]
-	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+	symbol := vars["symbol"]
+	
+	buyAmount, err := strconv.Atoi(vars["amount"])
+	if err != nil {
+		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
+		return
+	}
 
-	_, balance, err := dbutils.QueryUser(username)
+	balance, err := dbutils.QueryUserAvailableBalance(username)
 
 	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Write([]byte("Invalid user.\n"))
-			http.Error(w, err.Error(), http.StatusForbidden)
+			errMsg := fmt.Sprintf("Failed to find user %s.", username)
+			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 			return
 		}
-		utils.LogErr(err)
-		w.Write([]byte("Error getting user data.\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
 
 	if balance < buyAmount {
-		w.Write([]byte("Insufficent balance."))
+		errMsg := fmt.Sprintf("User does not have enough money to complete order.")
+		respondWithError(w, http.StatusInternalServerError, "", errMsg)
 		return
 	}
 
+
 	// cancel existing reservation for the same stock, if exists
-	err = dbactions.RemoveReservation(nil, username, stock, "buy", nil)
+	err = dbactions.RemoveReservation(nil, username, symbol, models.BUY)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errMsg := fmt.Sprintf("Failed to cancel previous buy order for %s.", username)
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
 
 	// addReservation()
-	body, err := dbutils.QueryQuote(username, stock)
-	if err != nil {
-		utils.LogErr(err)
-		if body != nil {
-			w.Write([]byte("Error getting stock quote.\n"))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Write([]byte("Error converting quote to string.\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
-	buyUnits := int(buyAmount / quote)
-
-	err = dbactions.BuyOrderTx(username, stock, "buy", buyUnits, buyAmount)
-
-	if err != nil {
-		utils.LogErr(err)
-		w.Write([]byte("Error setting buy amount."))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Write([]byte("Buy order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-
-	// remove reservation if not bought within 60 seconds
-	go dbactions.RemoveOrder(username, stock, orderType, 60)
-}
-
-func commitBuy(w http.ResponseWriter, r *http.Request) {
-	const orderType = "buy"
-	var requestParams = mux.Vars(r)
-	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Write([]byte("Sucessfully comitted transaction."))
-	return
-}
-
-func cancelBuy(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	err := dbactions.RemoveLastOrderTypeReservation(username, "buy")
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	res := []byte("Successfully cancelled most recent BUY command\n")
-	w.Write(res)
-}
-
-func cancelSell(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	err := dbactions.RemoveLastOrderTypeReservation(username, "sell")
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	res := []byte("Successfully cancelled most recent SELL command\n")
-	w.Write(res)
-}
-
-func sellOrder(w http.ResponseWriter, r *http.Request) {
-	const orderType = "sell"
-	var userShares int
-
-	vars := mux.Vars(r)
-	username := vars["username"]
-	stock := vars["stock"]
-	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
-
-	// confirm that user has enough valued stock
-	// to complete sell
-
-	_, userShares, err := dbutils.QueryUserStock(username, stock)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Write([]byte("User has no shares of this stock."))
-			return
-		}
-		utils.LogErr(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	body, err := dbutils.QueryQuote(username, stock)
-	if err != nil {
-		utils.LogErr(err)
-		w.Write([]byte("Error getting stock quote.\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
-	balance := quote * float64(userShares)
-
-	if balance < sellAmount {
-		w.Write([]byte("Insufficent balance to sell stock."))
-		return
-	}
-
-	// cancel existing sell reservation for this stock
-	err = dbactions.RemoveReservation(nil, username, stock, "sell", nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// add new reservation
-	sellUnits := int(sellAmount / quote)
-
-	err = dbactions.AddReservation(nil, username, stock, orderType, sellUnits, sellAmount, nil)
-	if err != nil {
-		utils.LogErr(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
-	go dbactions.RemoveOrder(username, stock, orderType, 60)
-}
-
-func commitSell(w http.ResponseWriter, r *http.Request) {
-	const orderType = "sell"
-	var requestParams = mux.Vars(r)
-	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
-
-	if err != nil {
-		utils.LogErr(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Write([]byte("Sucessfully comitted transaction."))
-	return
-}
-
-func setBuyAmount(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	stock := vars["stock"]
-	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
-	orderType := "buy"
-
-	_, userBalance, err := dbutils.QueryUser(username)
-
-	// check that user exists and has enough money
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Write([]byte("Invalid user."))
-			return
-		}
-		utils.LogErr(err)
-		w.Write([]byte("Error getting user data."))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if userBalance < buyAmount {
-		log.Printf("User balance: %f\nBuy amount: %f", buyAmount, userBalance)
-		w.Write([]byte("Insufficent balance."))
-		return
-	}
-
-	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
-	if totalValue > 0 || triggerPriceDB > 0 {
-		w.Write([]byte("SET BUY AMOUNT already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
-		return
-	}
-
-	err = dbactions.ExecuteSetBuyAmount(username, stock, orderType, buyAmount)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	m := string("Sucessfully comitted SET BUY AMOUNT transaction.")
-	w.Write([]byte(m))
-	return
-}
-
-func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	stock := vars["stock"]
-	triggerPrice := vars["triggerPrice"]
-	orderType := "buy"
-
-	// invalid trigger price
-	if p, err := strconv.ParseFloat(triggerPrice, 64); p <= 0 || err != nil {
-		w.Write([]byte("Invalid trigger price. Trigger price must be greater than 0.\n"))
-		return
-	}
-
-	// check if user has SET BUY AMOUNT record in trigger DB
-	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Write([]byte("SET BUY AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
-			return
-		}
-		utils.LogErr(err)
-		w.Write([]byte("Error getting user data."))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// trigger already exists, return error
-	if totalValue > 0 && triggerPriceDB > 0 {
-		w.Write([]byte("SET BUY TRIGGER already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
-		return
-	}
-
-	err = dbactions.SetBuyTrigger(username, stock, orderType, triggerPrice)
-	if err != nil {
-		w.Write([]byte("Failed to SET BUY trigger.\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Write([]byte("Successfully SET BUY trigger."))
-	return
-}
-
-func setSellAmount(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	symbol := vars["stock"]
-	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
-	orderType := "sell"
-
-	// confirm that user has enough valued stock
-	// to complete sell
-
-	_, userShares, err := dbutils.QueryUserStock(username, symbol)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Write([]byte("User has no shares of this stock."))
-			return
-		}
-		utils.LogErr(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
-	if totalValue > 0 || triggerPriceDB > 0 {
-		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
-		return
-	}
-
 	body, err := dbutils.QueryQuote(username, symbol)
 	if err != nil {
-		utils.LogErr(err)
-		w.Write([]byte("Error getting stock quote.\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
-	balance := quote * float64(userShares)
-
-	if balance < sellAmount {
-		w.Write([]byte("Insufficent balance to sell stock."))
-		return
-	}
-
-	err = dbactions.SetUserOrderTypeAmount(nil, username, symbol, orderType, sellAmount, nil)
-
-	if err != nil {
-		w.Write([]byte("Error setting SET SELL amount."))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Write([]byte("Successfully SET SELL amount"))
-	return
-}
-
-func setSellTrigger(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	stock := vars["stock"]
-	triggerPrice := vars["triggerPrice"]
-	orderType := "sell"
-
-	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
-	if totalValue > 0 && triggerPriceDB > 0 {
-		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
-		return
-	}
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Write([]byte("SET SELL AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
+		if body != nil {
+			errMsg := "Error getting stock quote for user."
+			respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 			return
 		}
-		utils.LogErr(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errMsg := "Error converting quote to string."
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
 
-	triggerPriceFloat, _ := strconv.ParseFloat(triggerPrice, 64)
-
-	err = dbactions.SetSellTrigger(username, stock, totalValue, triggerPriceFloat)
-
+	priceStr :=  strings.Replace(strings.Split(string(body), ",")[0], ".", "", 1)
+	quote, err := strconv.Atoi(priceStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errMsg := "Error reading stock quote."
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
 
-	w.Write([]byte("Successfully SET SELL trigger."))
-	return
-}
+	reservation := models.Reservation{ Username: username, Symbol: symbol, Order: models.BUY }
+	reservation.Shares = buyAmount / quote
+	reservation.Amount = reservation.Shares * quote
+	reservation.Time = time.Now().Unix()
 
-func executeTrigger(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	symbol := vars["stock"]
-	shares := vars["shares"]
-	triggerValue, _ := strconv.ParseFloat(vars["triggerValue"], 64)
-	totalValue, _ := strconv.ParseFloat(vars["totalValue"], 64)
-	orderType := vars["orderType"]
-
-	err := dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType)
-
+	err = dbactions.BuyOrderTx(reservation)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errMsg := "Error setting buy order."
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
 
-	res := []byte("Sucessfully executed SET " + orderType + " trigger.")
-	w.Write(res)
-	return
-}
-
-func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	symbol := vars["stock"]
-	err := dbactions.CancelSetTrigger(username, symbol, "buy")
-
+	res, err := dbutils.QueryReservation(username, symbol, models.BUY)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errMsg := "Error reservation not found after insert."
+		respondWithError(w, http.StatusInternalServerError, err.Error(), errMsg)
 		return
 	}
 
-	res := []byte("Successfully cancelled SET BUY\n")
-	w.Write(res)
+	respondWithJSON(w, http.StatusOK, res)
+
+	// remove reservation if not bought within 60 seconds
+	go dbactions.RemoveOrder(reservation.Username, reservation.Symbol, reservation.Order, 60)
 }
 
-func cancelSetSell(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	symbol := vars["stock"]
-	err := dbactions.CancelSetTrigger(username, symbol, "sell")
+// func commitBuy(w http.ResponseWriter, r *http.Request) {
+// 	const orderType = "buy"
+// 	var requestParams = mux.Vars(r)
+// 	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
 
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	res := []byte("Successfully cancelled SET SELL\n")
-	w.Write(res)
-}
+// 	w.Write([]byte("Sucessfully comitted transaction."))
+// 	return
+// }
 
-func validateURLParams(r *http.Request) (err error) {
-	vars := mux.Vars(r)
+// func cancelBuy(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	err := dbactions.RemoveLastOrderTypeReservation(username, "buy")
 
-	username, ok := vars["username"]
-	if ok != false {
-		if len(username) <= 0 {
-			return errors.New("Invalid username\n")
-		}
-	}
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	stock, ok := vars["stock"]
-	if ok != false {
-		// v, err := strconv.Atoi(stock)
-		if len(stock) <= 0 {
-			return errors.New("Invalid stock\n")
-		}
-		// allows stocks to be numbers
-		// could add check for stocks not being number values
-	}
+// 	res := []byte("Successfully cancelled most recent BUY command\n")
+// 	w.Write(res)
+// }
 
-	amount, ok := vars["amount"]
-	if ok != false {
-		floatAmount, err := strconv.ParseFloat(amount, 64)
-		if floatAmount <= 0 || err != nil {
-			return errors.New("Invalid amount\n")
-		}
-	}
+// func cancelSell(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	err := dbactions.RemoveLastOrderTypeReservation(username, "sell")
 
-	money, ok := vars["money"]
-	if ok != false {
-		floatMoney, err := strconv.ParseFloat(money, 64)
-		if floatMoney <= 0 || err != nil {
-			return errors.New("Invalid money\n")
-		}
-	}
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	triggerPrice, ok := vars["triggerPrice"]
-	if ok != false {
-		floatTriggerPrice, err := strconv.ParseFloat(triggerPrice, 64)
-		if floatTriggerPrice <= 0 || err != nil {
-			return errors.New("Invalid trigger price\n")
-		}
-	}
+// 	res := []byte("Successfully cancelled most recent SELL command\n")
+// 	w.Write(res)
+// }
 
-	shares, ok := vars["shares"]
-	if ok != false {
-		intShares, err := strconv.Atoi(shares)
-		if intShares <= 0 || err != nil {
-			return errors.New("Invalid number of shares\n")
-		}
-	}
+// func sellOrder(w http.ResponseWriter, r *http.Request) {
+// 	const orderType = "sell"
+// 	var userShares int
 
-	orderType, ok := vars["orderType"]
-	if ok != false {
-		if len(orderType) <= 0 {
-			return errors.New("Invalid order type\n")
-		}
-	}
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	stock := vars["stock"]
+// 	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
 
-	totalValue, ok := vars["totalValue"]
-	if ok != false {
-		floatTotalValue, err := strconv.ParseFloat(totalValue, 64)
-		if floatTotalValue <= 0 || err != nil {
-			return errors.New("Invalid totalValue\n")
-		}
-	}
+// 	// confirm that user has enough valued stock
+// 	// to complete sell
 
-	err = nil
-	return err
-}
+// 	_, userShares, err := dbutils.QueryUserStock(username, stock)
+
+// 	if err != nil {
+// 		if err == sql.ErrNoRows {
+// 			w.Write([]byte("User has no shares of this stock."))
+// 			return
+// 		}
+// 		utils.LogErr(err)
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	body, err := dbutils.QueryQuote(username, stock)
+// 	if err != nil {
+// 		utils.LogErr(err)
+// 		w.Write([]byte("Error getting stock quote.\n"))
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
+// 	balance := quote * float64(userShares)
+
+// 	if balance < sellAmount {
+// 		w.Write([]byte("Insufficent balance to sell stock."))
+// 		return
+// 	}
+
+// 	// cancel existing sell reservation for this stock
+// 	err = dbactions.RemoveReservation(nil, username, stock, "sell", nil)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	// add new reservation
+// 	sellUnits := int(sellAmount / quote)
+
+// 	err = dbactions.AddReservation(nil, username, stock, orderType, sellUnits, sellAmount, nil)
+// 	if err != nil {
+// 		utils.LogErr(err)
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	w.Write([]byte("Sell order placed. You have 60 seconds to confirm your order; otherwise, it will be dropped."))
+// 	go dbactions.RemoveOrder(username, stock, orderType, 60)
+// }
+
+// func commitSell(w http.ResponseWriter, r *http.Request) {
+// 	const orderType = "sell"
+// 	var requestParams = mux.Vars(r)
+// 	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
+
+// 	if err != nil {
+// 		utils.LogErr(err)
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	w.Write([]byte("Sucessfully comitted transaction."))
+// 	return
+// }
+
+// func setBuyAmount(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	stock := vars["stock"]
+// 	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+// 	orderType := "buy"
+
+// 	_, userBalance, err := dbutils.QueryUser(username)
+
+// 	// check that user exists and has enough money
+// 	if err != nil {
+// 		if err == sql.ErrNoRows {
+// 			w.Write([]byte("Invalid user."))
+// 			return
+// 		}
+// 		utils.LogErr(err)
+// 		w.Write([]byte("Error getting user data."))
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	if userBalance < buyAmount {
+// 		log.Printf("User balance: %f\nBuy amount: %f", buyAmount, userBalance)
+// 		w.Write([]byte("Insufficent balance."))
+// 		return
+// 	}
+
+// 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+// 	if totalValue > 0 || triggerPriceDB > 0 {
+// 		w.Write([]byte("SET BUY AMOUNT already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
+// 		return
+// 	}
+
+// 	err = dbactions.ExecuteSetBuyAmount(username, stock, orderType, buyAmount)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	m := string("Sucessfully comitted SET BUY AMOUNT transaction.")
+// 	w.Write([]byte(m))
+// 	return
+// }
+
+// func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	stock := vars["stock"]
+// 	triggerPrice := vars["triggerPrice"]
+// 	orderType := "buy"
+
+// 	// invalid trigger price
+// 	if p, err := strconv.ParseFloat(triggerPrice, 64); p <= 0 || err != nil {
+// 		w.Write([]byte("Invalid trigger price. Trigger price must be greater than 0.\n"))
+// 		return
+// 	}
+
+// 	// check if user has SET BUY AMOUNT record in trigger DB
+// 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+
+// 	if err != nil {
+// 		if err == sql.ErrNoRows {
+// 			w.Write([]byte("SET BUY AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
+// 			return
+// 		}
+// 		utils.LogErr(err)
+// 		w.Write([]byte("Error getting user data."))
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	// trigger already exists, return error
+// 	if totalValue > 0 && triggerPriceDB > 0 {
+// 		w.Write([]byte("SET BUY TRIGGER already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
+// 		return
+// 	}
+
+// 	err = dbactions.SetBuyTrigger(username, stock, orderType, triggerPrice)
+// 	if err != nil {
+// 		w.Write([]byte("Failed to SET BUY trigger.\n"))
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	w.Write([]byte("Successfully SET BUY trigger."))
+// 	return
+// }
+
+// func setSellAmount(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	symbol := vars["stock"]
+// 	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
+// 	orderType := "sell"
+
+// 	// confirm that user has enough valued stock
+// 	// to complete sell
+
+// 	_, userShares, err := dbutils.QueryUserStock(username, symbol)
+// 	if err != nil {
+// 		if err == sql.ErrNoRows {
+// 			w.Write([]byte("User has no shares of this stock."))
+// 			return
+// 		}
+// 		utils.LogErr(err)
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
+// 	if totalValue > 0 || triggerPriceDB > 0 {
+// 		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
+// 		return
+// 	}
+
+// 	body, err := dbutils.QueryQuote(username, symbol)
+// 	if err != nil {
+// 		utils.LogErr(err)
+// 		w.Write([]byte("Error getting stock quote.\n"))
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	quote, _ := strconv.ParseFloat(strings.Split(string(body), ",")[0], 64)
+// 	balance := quote * float64(userShares)
+
+// 	if balance < sellAmount {
+// 		w.Write([]byte("Insufficent balance to sell stock."))
+// 		return
+// 	}
+
+// 	err = dbactions.SetUserOrderTypeAmount(nil, username, symbol, orderType, sellAmount, nil)
+
+// 	if err != nil {
+// 		w.Write([]byte("Error setting SET SELL amount."))
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	w.Write([]byte("Successfully SET SELL amount"))
+// 	return
+// }
+
+// func setSellTrigger(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	stock := vars["stock"]
+// 	triggerPrice := vars["triggerPrice"]
+// 	orderType := "sell"
+
+// 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+// 	if totalValue > 0 && triggerPriceDB > 0 {
+// 		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
+// 		return
+// 	}
+
+// 	if err != nil {
+// 		if err == sql.ErrNoRows {
+// 			w.Write([]byte("SET SELL AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
+// 			return
+// 		}
+// 		utils.LogErr(err)
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	triggerPriceFloat, _ := strconv.ParseFloat(triggerPrice, 64)
+
+// 	err = dbactions.SetSellTrigger(username, stock, totalValue, triggerPriceFloat)
+
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	w.Write([]byte("Successfully SET SELL trigger."))
+// 	return
+// }
+
+// func executeTrigger(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	symbol := vars["stock"]
+// 	shares := vars["shares"]
+// 	triggerValue, _ := strconv.ParseFloat(vars["triggerValue"], 64)
+// 	totalValue, _ := strconv.ParseFloat(vars["totalValue"], 64)
+// 	orderType := vars["orderType"]
+
+// 	err := dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType)
+
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	res := []byte("Sucessfully executed SET " + orderType + " trigger.")
+// 	w.Write(res)
+// 	return
+// }
+
+// func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	symbol := vars["stock"]
+// 	err := dbactions.CancelSetTrigger(username, symbol, "buy")
+
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	res := []byte("Successfully cancelled SET BUY\n")
+// 	w.Write(res)
+// }
+
+// func cancelSetSell(w http.ResponseWriter, r *http.Request) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	symbol := vars["stock"]
+// 	err := dbactions.CancelSetTrigger(username, symbol, "sell")
+
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	res := []byte("Successfully cancelled SET SELL\n")
+// 	w.Write(res)
+// }
+
 
 func logHandler(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
-		err := validateURLParams(r)
-		if err != nil {
-			utils.LogErr(err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+		// err := validateURLParams(r)
+		// if err != nil {
+		// 	utils.LogErr(err)
+		// 	http.Error(w, err.Error(), http.StatusBadRequest)
+		// 	return
+		// }
 
 		log.Println(l)
 		fn(w, r)
@@ -610,28 +592,29 @@ func main() {
 	// port, _ := freeport.GetFreePort()
 	port := 8888
 
-	log.Println("Running transaction server on port: " + strconv.Itoa(port))
+	
+	router.HandleFunc("/api/clearUsers", logHandler(clearUsers))
 
-	router.HandleFunc("/api/addUser/{username}/{money}", logHandler(addUser))
+	router.HandleFunc("/api/add/{username}/{money}", logHandler(addUser))
 	router.HandleFunc("/api/getQuote/{username}/{stock}", logHandler(getQuoute))
 
-	router.HandleFunc("/api/buy/{username}/{stock}/{amount}", logHandler(buyOrder))
-	router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
-	router.HandleFunc("/api/cancelBuy/{username}", logHandler(cancelBuy))
+	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}", logHandler(buyOrder))
+	// router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
+	// router.HandleFunc("/api/cancelBuy/{username}", logHandler(cancelBuy))
 
-	router.HandleFunc("/api/sell/{username}/{stock}/{amount}", logHandler(sellOrder))
-	router.HandleFunc("/api/commitSell/{username}", logHandler(commitSell))
-	router.HandleFunc("/api/cancelSell/{username}", logHandler(cancelSell))
+	// router.HandleFunc("/api/sell/{username}/{stock}/{amount}", logHandler(sellOrder))
+	// router.HandleFunc("/api/commitSell/{username}", logHandler(commitSell))
+	// router.HandleFunc("/api/cancelSell/{username}", logHandler(cancelSell))
 
-	router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", logHandler(setBuyAmount))
-	router.HandleFunc("/api/cancelSetBuy/{username}/{stock}", logHandler(cancelSetBuy))
-	router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", logHandler(setBuyTrigger))
+	// router.HandleFunc("/api/setBuyAmount/{username}/{stock}/{amount}", logHandler(setBuyAmount))
+	// router.HandleFunc("/api/cancelSetBuy/{username}/{stock}", logHandler(cancelSetBuy))
+	// router.HandleFunc("/api/setBuyTrigger/{username}/{stock}/{triggerPrice}", logHandler(setBuyTrigger))
 
-	router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
-	router.HandleFunc("/api/cancelSetSell/{username}/{stock}", logHandler(cancelSetSell))
-	router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
+	// router.HandleFunc("/api/setSellAmount/{username}/{stock}/{amount}", logHandler(setSellAmount))
+	// router.HandleFunc("/api/cancelSetSell/{username}/{stock}", logHandler(cancelSetSell))
+	// router.HandleFunc("/api/setSellTrigger/{username}/{stock}/{triggerPrice}", logHandler(setSellTrigger))
 
-	router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", logHandler(executeTrigger))
+	// router.HandleFunc("/api/executeTrigger/{username}/{stock}/{shares}/{totalValue}/{triggerValue}/{orderType}", logHandler(executeTrigger))
 
 	http.Handle("/", router)
 
@@ -641,4 +624,6 @@ func main() {
 		log.Fatal(err)
 		panic(err)
 	}
+
+	log.Println("Running transaction server on port: " + strconv.Itoa(port))
 }
