@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,22 +24,41 @@ func SetUtilsDB(database *sql.DB) {
 }
 
 func GetQuoteServerURL() string {
-    port := os.Getenv("QUOTE_SERVER_PORT")
-    host := os.Getenv("QUOTE_SERVER_HOST")
-    url := fmt.Sprintf("http://%s:%s", host, port)
-    return string(url)
+	port := os.Getenv("QUOTE_SERVER_PORT")
+	host := os.Getenv("QUOTE_SERVER_HOST")
+	url := fmt.Sprintf("http://%s:%s", host, port)
+	return string(url)
 }
 
 func QueryQuote(username string, stock string) (body []byte, err error) {
-	URL := GetQuoteServerURL()
-	log.Println(URL)
-	res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
 
-	if err != nil {
-		utils.LogErr(err)
-	} else {
-		body, err = ioutil.ReadAll(res.Body)
+	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
+	if env == true {
+		ip := os.Getenv("QUOTE_SERVER_HOST")
+		port := os.Getenv("QUOTE_SERVER_PORT")
+
+		addr := strings.Join([]string{ip, port}, ":")
+		conn, err := net.Dial("tcp", addr)
+		defer conn.Close()
+
+		if err != nil {
+			return
+		}
+
+		msg := stock + "," + username
+		conn.Write([]byte(msg))
+		buff := make([]byte, 1024)
+		body, _ := conn.Read(buff)
 		log.Println(string(body))
+	} else {
+		URL := GetQuoteServerURL()
+		res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
+		if err != nil {
+			utils.LogErr(err)
+		} else {
+			body, err = ioutil.ReadAll(res.Body)
+			log.Println(string(body))
+		}
 	}
 
 	return
