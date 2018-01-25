@@ -24,15 +24,23 @@ func SetUtilsDB(database *sql.DB) {
 }
 
 func GetQuoteServerURL() string {
+	log.Println("yoooo")
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	url := fmt.Sprintf("http://%s:%s", host, port)
 	return string(url)
 }
 
-func QueryQuote(username string, stock string) (body []byte, err error) {
+func QueryQuote(username string, stock string) ([]byte, error) {
+
+	var body []byte
+	var err error
 
 	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
+
+	log.Println("Printing enc:")
+	log.Println(env)
+
 	if env == true {
 		ip := os.Getenv("QUOTE_SERVER_HOST")
 		port := os.Getenv("QUOTE_SERVER_PORT")
@@ -40,9 +48,8 @@ func QueryQuote(username string, stock string) (body []byte, err error) {
 		addr := strings.Join([]string{ip, port}, ":")
 		conn, err := net.Dial("tcp", addr)
 		defer conn.Close()
-
 		if err != nil {
-			return
+			return body, err
 		}
 
 		msg := stock + "," + username
@@ -61,7 +68,7 @@ func QueryQuote(username string, stock string) (body []byte, err error) {
 		}
 	}
 
-	return
+	return body, err
 }
 
 func QueryUser(username string) (uid string, balance float64, err error) {
