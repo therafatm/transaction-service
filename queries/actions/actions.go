@@ -28,33 +28,32 @@ func ClearUsers() (err error) {
 	return
 }
 
-func InsertUser(user models.User) (err error) {
+func InsertUser(user models.User) (res sql.Result, err error) {
 	//add new user
 	query := "INSERT INTO users(username, money) VALUES($1,$2)"
-	_, err = db.Exec(query, user.Username, user.Money)
+	res, err = db.Exec(query, user.Username, user.Money)
 	if err != nil {
 		utils.LogErr(err)
 	}
 	return
 }
 
-func UpdateUser(user models.User) (err error) {
+func UpdateUser(user models.User) (res sql.Result, err error) {
 	query := "UPDATE users SET money = $1 WHERE username = $2"
 	money := fmt.Sprintf("%d", user.Money)
-	_, err = db.Exec(query, money, user.Username)
+	res, err = db.Exec(query, money, user.Username)
 	if err != nil {
 		utils.LogErr(err)
 	}
 	return
 }
 
-func AddReservation(tx *sql.Tx, res models.Reservation) (err error) {
-	query := "INSERT INTO reservations(username, symbol, type, shares, amount, time) VALUES($1,$2,$3,$4,$5,$6)"
-
+func AddReservation(tx *sql.Tx, reserv models.Reservation) (rid int64, err error) {
+	query := "INSERT INTO reservations(username, symbol, type, shares, amount, time) VALUES($1,$2,$3,$4,$5,$6) RETURNING rid"
 	if tx == nil {
-		_, err = db.Exec(query, res.Username, res.Symbol, res.Order, res.Shares, res.Amount, res.Time)
+		err = db.QueryRow(query, reserv.Username, reserv.Symbol, reserv.Order, reserv.Shares, reserv.Amount, reserv.Time).Scan(&rid)
 	} else {
-		_, err = db.Exec(query, res.Username, res.Symbol, res.Order, res.Shares, res.Amount, res.Time)
+		err = db.QueryRow(query, reserv.Username, reserv.Symbol, reserv.Order, reserv.Shares, reserv.Amount, reserv.Time).Scan(&rid)
 	}
 	return
 }
@@ -103,31 +102,31 @@ func UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderT
 	return
 }
 
-func RemoveReservation(tx *sql.Tx, username string, symbol string, resType models.OrderType) (err error) {
-	query := "DELETE FROM reservations WHERE username=$1 AND symbol=$2 AND type=$3"
+func RemoveReservation(tx *sql.Tx, rid int64) (err error) {
+	query := "DELETE FROM reservations WHERE rid = $1"
 	if tx == nil {
-		_, err = db.Exec(query, username, symbol, resType)
+		_, err = db.Exec(query, rid)
 	} else {
-		_, err = tx.Exec(query, username, symbol, resType)
+		_, err = tx.Exec(query, rid)
 	}
 	return
 }
 
-func RemoveOrder(username string, stock string, orderType models.OrderType, timeout time.Duration) {
+func RemoveOrder(rid int64, timeout time.Duration) {
 	time.Sleep(timeout * time.Second)
 
-	err := RemoveReservation(nil, username, stock, orderType)
+	err := RemoveReservation(nil, rid)
 	if err != nil {
 		log.Println("Error removing reservation due to timeout.")
 	}
 }
 
-func RemoveLastOrderTypeReservation(username string, orderType models.OrderType) (err error) {
+func RemoveLastOrderTypeReservation(username string, orderType models.OrderType) (res models.Reservation, err error) {
 	query := `DELETE FROM reservations WHERE rid IN ( 
-				SELECT rid FROM reservations WHERE username=$1 AND type=$2 ORDER BY time DESC LIMIT(1) 
-			 )`
+				SELECT rid FROM reservations WHERE username=$1 AND type=$2 ORDER BY time DESC, rid DESC LIMIT(1)) 
+				RETURNING rid, username, symbol, shares, amount, type, time`
 
-	_, err = db.Exec(query, username, orderType)
+	err = db.QueryRow(query, username, orderType).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
 	return
 }
 
@@ -240,7 +239,7 @@ func CommitBuySellTransaction(res models.Reservation) (err error) {
 		return
 	}
 
-	err = RemoveReservation(tx, res.Username, res.Symbol, res.Order)
+	err = RemoveReservation(tx, res.ID)
 	if err != nil {
 		tx.Rollback()
 		return
@@ -251,28 +250,6 @@ func CommitBuySellTransaction(res models.Reservation) (err error) {
 		tx.Rollback()
 		return
 	}
-	return
-}
-
-func BuyOrderTx(res models.Reservation) (err error) {
-	tx, err := db.Begin()
-	if err != nil {
-		tx.Rollback()
-		return
-	}
-
-	err = AddReservation(tx, res)
-	if err != nil  {
-		tx.Rollback()
-		return
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		tx.Rollback()
-		return
-	}
-
 	return
 }
 

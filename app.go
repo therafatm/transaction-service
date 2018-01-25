@@ -48,6 +48,7 @@ func connectToDB() *sql.DB {
 
 func respondWithError(w http.ResponseWriter, code int, err error, message string) {
 	utils.LogErr(err)
+	fmt.Println(message)
     respondWithJSON(w, code, map[string]string{"error": err.Error(), "message": message})
 }
 
@@ -102,7 +103,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil && err == sql.ErrNoRows {
 		//user no exist
 		newUser := models.User{Username: username, Money: money}
-		err := dbactions.InsertUser(newUser)
+		_, err := dbactions.InsertUser(newUser)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, errMsg)
 			return
@@ -116,7 +117,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 	}else{
 		// user exists
 		user.Money += money
-		err = dbactions.UpdateUser(user)
+		_, err = dbactions.UpdateUser(user)
 
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, errMsg)
@@ -223,15 +224,6 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
-	// cancel existing reservation for the same stock, if exists
-	err = dbactions.RemoveReservation(nil, username, symbol, models.BUY)
-	if err != nil {
-		errMsg := fmt.Sprintf("Failed to cancel previous buy order for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return
-	}
-
 	body, err := dbutils.QueryQuote(username, symbol)
 	if err != nil {
 		if body != nil {
@@ -257,24 +249,24 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
-	err = dbactions.AddReservation(nil, reservation)
+	rid, err := dbactions.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
-
-	res, err := dbutils.QueryReservation(username, symbol, models.BUY)
+	
+	reserv, err := dbutils.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, res)
+	respondWithJSON(w, http.StatusOK, reserv)
 
 	// remove reservation if not bought within 60 seconds
-	go dbactions.RemoveOrder(reservation.Username, reservation.Symbol, reservation.Order, 60)
+	go dbactions.RemoveOrder(rid, 60)
 }
 
 func sellOrder(w http.ResponseWriter, r *http.Request) {
@@ -330,24 +322,24 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
-	err = dbactions.AddReservation(nil, reservation)
+	rid, err := dbactions.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting sell order."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
-	res, err := dbutils.QueryReservation(username, symbol, models.SELL)
+	reserv, err := dbutils.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, res)
+	respondWithJSON(w, http.StatusOK, reserv)
 
 	// remove reservation if not bought within 60 seconds
-	go dbactions.RemoveOrder(reservation.Username, reservation.Symbol, reservation.Order, 60)
+	go dbactions.RemoveOrder(rid, 60)
 }
 
 
@@ -394,24 +386,12 @@ func commitSell(w http.ResponseWriter, r *http.Request) {
 func cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-
-	res, err := dbutils.QueryLastReservation(username, orderType)
-	if err != nil && err == sql.ErrNoRows {
-		errMsg := fmt.Sprintf("No reserved %s order to delete.", orderType)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return
-	}else if err != nil {
-		errMsg := fmt.Sprintf("Error finding last %s reservation.", orderType)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return
-	}
-
-	err = dbactions.RemoveLastOrderTypeReservation(username, orderType)
+	res, err := dbactions.RemoveLastOrderTypeReservation(username, orderType)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error deleting last %s reservation.", orderType)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return
 	}
-
 	respondWithJSON(w, http.StatusOK, res)
 	return
 }
@@ -425,41 +405,49 @@ func cancelBuy(w http.ResponseWriter, r *http.Request) {
 	cancelOrder(w, r, models.BUY)
 }
 
-
-
-
 // func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 // 	vars := mux.Vars(r)
 // 	username := vars["username"]
 // 	stock := vars["stock"]
-// 	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
-// 	orderType := "buy"
 
-// 	_, userBalance, err := dbutils.QueryUser(username)
+// 	buyAmount, err := strconv.Atoi(vars["amount"])
+// 	if err != nil {
+// 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
+// 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+// 		return
+// 	}
 
+// 	balance, err := dbutils.QueryUserAvailableBalance(username)
 // 	// check that user exists and has enough money
 // 	if err != nil {
 // 		if err == sql.ErrNoRows {
-// 			w.Write([]byte("Invalid user."))
+// 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
+// 			respondWithError(w, http.StatusInternalServerError, err, errMsg)
 // 			return
 // 		}
-// 		utils.LogErr(err)
-// 		w.Write([]byte("Error getting user data."))
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+// 		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
+// 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 // 		return
 // 	}
 
-// 	if userBalance < buyAmount {
-// 		log.Printf("User balance: %f\nBuy amount: %f", buyAmount, userBalance)
-// 		w.Write([]byte("Insufficent balance."))
+// 	if balance < buyAmount {
+// 		errMsg := fmt.Sprintf("User does not have enough money to complete trigger %d < %d.", balance, buyAmount)
+// 		err = errors.New("Error not enough money.")
+// 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 // 		return
 // 	}
 
-// 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
-// 	if totalValue > 0 || triggerPriceDB > 0 {
-// 		w.Write([]byte("SET BUY AMOUNT already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
-// 		return
+// 	_, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
+// 	if err == nil {
+// 		errMsg := fmt.Sprintf("Error a %s trigger alread exists for user %s. Please cancel it.", models.BUY, username)
+// 		err = errors.New("A previous stock trigger exists.")
+// 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+// 	}else if err != sql.ErrNoRows {
+// 		errMsg := fmt.Sprintf("Error querying %s triggers for %s.", models.BUY, username)
+// 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 // 	}
+	
 
 // 	err = dbactions.ExecuteSetBuyAmount(username, stock, orderType, buyAmount)
 // 	if err != nil {

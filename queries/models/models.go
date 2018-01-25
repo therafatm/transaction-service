@@ -14,7 +14,7 @@ type User struct {
 }
 
 type Reservation struct {
-	ID int 					`json:"id"`
+	ID int64				`json:"id"`
 	Username string			`json:"username"`
 	Symbol string			`json:"symbol"`
 	Order  OrderType		`json:"type"`
@@ -28,4 +28,14 @@ type Stock struct {
 	Username string			`json:"username"`
 	Symbol string 			`json:"symbol"`
 	Shares int  			`json:"shares"`
+}
+
+type Trigger struct {
+	ID int 					`json:"id"`
+	Username string			`json:"username"`
+	Symbol string 			`json:"symbol"`
+	Order OrderType 		`json:"type"`
+	Amount int 				`json:"amount"`
+	Shares int				`json:"shares"`
+	TriggerPrice int 	 	`json:"triggerprice"`
 }

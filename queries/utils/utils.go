@@ -69,22 +69,11 @@ func QueryUserStock(username string, symbol string) (stock models.Stock, err err
 	return 
 }
 
-func QueryUserStockTrigger(username string, stock string, orderType string) (string, int64, float64, float64, error) {
-	var shares sql.NullInt64
-	var totalAmount sql.NullFloat64
-	var triggerPrice sql.NullFloat64
-
-	query := "SELECT shares, amount, trigger_price FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3"
-	err := db.QueryRow(query, username, stock, orderType).Scan(&shares, &totalAmount, &triggerPrice)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			log.Println("Trigger does not exist.")
-		}
-		return string(""), -1, -1, -1, err
-	}
-
-	return stock, shares.Int64, totalAmount.Float64, triggerPrice.Float64, err
+func QueryUserStockTrigger(username string, stock string, orderType string) (trigger models.Trigger, err error) {
+	query := "SELECT tid, username, symbol, type, amount, shares, trigger_price FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3"
+	err = db.QueryRow(query, username, stock, orderType).Scan(&trigger.ID, &trigger.Username, &trigger.Symbol, 
+						&trigger.Order, &trigger.Amount, &trigger.Shares, &trigger.TriggerPrice)
+	return 
 }
 
 func QueryAndExecuteCurrentTriggers() {
@@ -135,14 +124,14 @@ func QueryAndExecuteCurrentTriggers() {
 	return
 }
 
-func QueryReservation(username string, symbol string, resType models.OrderType) (res models.Reservation, err error) {
-	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE username=$1 and symbol=$2 and type=$3"
-	err = db.QueryRow(query, username, symbol, resType).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
+func QueryReservation(rid int64) (res models.Reservation, err error) {
+	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE rid=$1"
+	err = db.QueryRow(query, rid).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
 	return
 }
 
 func QueryLastReservation(username string, resType models.OrderType) (res models.Reservation, err error) {
-	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE username=$1 and type=$2 ORDER BY (time) DESC LIMIT 1"
+	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE username=$1 and type=$2 ORDER BY (time) DESC, rid DESC LIMIT 1"
 	err = db.QueryRow(query, username, resType).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)
 	return
 }
