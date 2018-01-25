@@ -44,10 +44,17 @@ func QueryQuote(username string, stock string) (body []byte, err error) {
 
 func QueryUserAvailableBalance(username string) ( balance int, err error) {
 	query := `SELECT (SELECT money FROM USERS WHERE username = $1) -
-			 (SELECT COALESCE(SUM(amount), 0) FROM RESERVATIONS WHERE username = $1)
+			 (SELECT COALESCE(SUM(amount), 0) FROM RESERVATIONS WHERE username = $1 and type = $2)
 			 as available_balance;`
-	err = db.QueryRow(query, username).Scan(&balance)
+	err = db.QueryRow(query, username, models.BUY).Scan(&balance)
 	return
+}
+
+func QueryUserAvailableShares(username string, symbol string) (shares int, err error) {
+	query := `SELECT (SELECT COALESCE(SUM(shares), 0) FROM Stocks WHERE username = $1 and symbol = $2) -
+			 (SELECT COALESCE(SUM(shares), 0) FROM RESERVATIONS WHERE username = $1 and type = $3);`
+	err = db.QueryRow(query, username, symbol, models.SELL).Scan(&shares)
+	return 
 }
 
 func QueryUser(username string) (user models.User, err error) {
@@ -59,7 +66,7 @@ func QueryUser(username string) (user models.User, err error) {
 func QueryUserStock(username string, symbol string) (stock models.Stock, err error) {
 	query := "SELECT sid, username, symbol, shares FROM stocks WHERE username = $1 AND symbol = $2"
 	err = db.QueryRow(query, username, symbol).Scan(&stock.ID, &stock.Username, &stock.Symbol, &stock.Shares)
-	return stock, err
+	return 
 }
 
 func QueryUserStockTrigger(username string, stock string, orderType string) (string, int64, float64, float64, error) {
