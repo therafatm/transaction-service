@@ -7,10 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
+	//"strconv"
+	//"strings"
 
-	"transaction_service/utils"
+	//"transaction_service/utils"
 	"transaction_service/queries/models"
 )
 
@@ -69,60 +69,66 @@ func QueryUserStock(username string, symbol string) (stock models.Stock, err err
 	return 
 }
 
-func QueryUserStockTrigger(username string, stock string, orderType string) (trigger models.Trigger, err error) {
-	query := "SELECT tid, username, symbol, type, amount, shares, trigger_price FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3"
-	err = db.QueryRow(query, username, stock, orderType).Scan(&trigger.ID, &trigger.Username, &trigger.Symbol, 
-						&trigger.Order, &trigger.Amount, &trigger.Shares, &trigger.TriggerPrice)
+func QueryStockTrigger(tid int64) (trig models.Trigger, err error) {
+	query := "SELECT tid, username, symbol, type, amount, shares, trigger_price, executable, time FROM triggers WHERE tid = $1"
+	err = db.QueryRow(query, tid).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
+						&trig.Order, &trig.Amount, &trig.Shares, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	return 
 }
 
-func QueryAndExecuteCurrentTriggers() {
-
-	query := `SELECT username, symbol, type, shares, amount, trigger_price 
-				FROM triggers 
-					WHERE trigger_price IS NOT NULL AND amount IS NOT NULL`
-
-	rows, err := db.Query(query)
-
-	if err != nil {
-		return
-	}
-
-	defer rows.Close()
-
-	for rows.Next() {
-		var username string
-		var symbol string
-		var orderType string
-		var shares sql.NullInt64
-		var amount sql.NullFloat64
-		var triggerValue sql.NullFloat64
-
-		err := rows.Scan(&username, &symbol, &orderType, &shares, &amount, &triggerValue)
-		if err != nil {
-			utils.LogErr(err)
-		}
-
-		isSell := strings.Compare(orderType, "sell") == 0
-		if (isSell && shares.Int64 > 0) || (!isSell && triggerValue.Float64 > 0) {
-			log.Println("Executing trigger (username,stock):")
-			log.Println(username)
-			log.Println(symbol)
-			quoteStr, err := QueryQuote(username, symbol)
-			if err == nil {
-				quote, _ := strconv.ParseFloat(strings.Split(string(quoteStr), ",")[0], 64)
-				if quote <= triggerValue.Float64 {
-					url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
-					go http.Get(url)
-				}
-			} else {
-				utils.LogErr(err)
-			}
-		}
-	}
-
-	return
+func QueryUserTrigger(username string, symbol string, orderType models.OrderType) (trig models.Trigger, err error) {
+	query := "SELECT tid, username, symbol, type, amount, shares, trigger_price, executable, time FROM triggers WHERE username = $1 AND symbol=$2 AND type=$3"
+	err = db.QueryRow(query, username, symbol, orderType).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
+						&trig.Order, &trig.Amount, &trig.Shares, &trig.TriggerPrice, &trig.Executable, &trig.Time)
+	return 
 }
+
+// func QueryAndExecuteCurrentTriggers() {
+// 	query := `SELECT username, symbol, type, shares, amount, trigger_price 
+// 				FROM triggers 
+// 					WHERE trigger_price IS NOT NULL AND amount IS NOT NULL`
+
+// 	rows, err := db.Query(query)
+
+// 	if err != nil {
+// 		return
+// 	}
+
+// 	defer rows.Close()
+
+// 	for rows.Next() {
+// 		var username string
+// 		var symbol string
+// 		var orderType string
+// 		var shares sql.NullInt64
+// 		var amount sql.NullFloat64
+// 		var triggerValue sql.NullFloat64
+
+// 		err := rows.Scan(&username, &symbol, &orderType, &shares, &amount, &triggerValue)
+// 		if err != nil {
+// 			utils.LogErr(err)
+// 		}
+
+// 		isSell := strings.Compare(orderType, "sell") == 0
+// 		if (isSell && shares.Int64 > 0) || (!isSell && triggerValue.Float64 > 0) {
+// 			log.Println("Executing trigger (username,stock):")
+// 			log.Println(username)
+// 			log.Println(symbol)
+// 			quoteStr, err := QueryQuote(username, symbol)
+// 			if err == nil {
+// 				quote, _ := strconv.ParseFloat(strings.Split(string(quoteStr), ",")[0], 64)
+// 				if quote <= triggerValue.Float64 {
+// 					url := fmt.Sprintf("http://localhost:8888/api/executeTrigger/%s/%s/%d/%f/%f/%s", username, symbol, shares.Int64, amount.Float64, triggerValue.Float64, orderType)
+// 					go http.Get(url)
+// 				}
+// 			} else {
+// 				utils.LogErr(err)
+// 			}
+// 		}
+// 	}
+
+// 	return
+// }
 
 func QueryReservation(rid int64) (res models.Reservation, err error) {
 	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE rid=$1"

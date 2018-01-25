@@ -8,7 +8,7 @@ const (
 )
 
 type User struct {
-	ID int					`json:"id"`
+	ID int64				`json:"id"`
 	Username string			`json:"username"`				
 	Money int				`json:"money"`
 }
@@ -24,18 +24,20 @@ type Reservation struct {
 }
 
 type Stock struct {
-	ID int 					`json:"id"`
+	ID int64				`json:"id"`
 	Username string			`json:"username"`
 	Symbol string 			`json:"symbol"`
 	Shares int  			`json:"shares"`
 }
 
 type Trigger struct {
-	ID int 					`json:"id"`
+	ID int64				`json:"id"`
 	Username string			`json:"username"`
 	Symbol string 			`json:"symbol"`
 	Order OrderType 		`json:"type"`
 	Amount int 				`json:"amount"`
 	Shares int				`json:"shares"`
 	TriggerPrice int 	 	`json:"triggerprice"`
+	Executable bool	 		`json:"executable"`
+	Time int64 				`json:"time"`
 }
