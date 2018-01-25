@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"transaction_service/utils"
 )
@@ -38,22 +39,20 @@ func QueryQuote(username string, stock string) ([]byte, error) {
 
 	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
 
-	log.Println("Printing enc:")
-	log.Println(env)
-
 	if env == true {
 		ip := os.Getenv("QUOTE_SERVER_HOST")
 		port := os.Getenv("QUOTE_SERVER_PORT")
-
 		addr := strings.Join([]string{ip, port}, ":")
-		conn, err := net.Dial("tcp", addr)
-		defer conn.Close()
+		log.Println("ADDR: " + addr)
+		conn, err := net.DialTimeout("tcp", addr, time.Second*10)
 		if err != nil {
 			return body, err
 		}
+		defer conn.Close()
 
 		msg := stock + "," + username
 		conn.Write([]byte(msg))
+
 		buff := make([]byte, 1024)
 		body, _ := conn.Read(buff)
 		log.Println(string(body))
