@@ -9,7 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
+	logger "transaction_service/logger"
 	"transaction_service/queries/actions"
 	"transaction_service/queries/utils"
 	"transaction_service/triggers/triggermanager"
@@ -27,7 +27,7 @@ func connectToDB() *sql.DB {
 		host     = os.Getenv("POSTGRES_HOST")
 		user     = os.Getenv("POSTGRES_USER")
 		password = os.Getenv("POSTGRES_PASSWORD")
-		dbname = os.Getenv("POSTGRES_DB")
+		dbname   = os.Getenv("POSTGRES_DB")
 	)
 
 	port, err := strconv.Atoi(os.Getenv("DB_PORT"))
@@ -52,6 +52,21 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s := string(body[:])
+	response := strings.Split(s, ",")
+
+	price := response[0]
+
+	symbol := response[1]
+
+	userid := response[2]
+
+	timestamp := response[3]
+
+	cryptokey := response[4]
+
+	logger.LogQuoteServ(timestamp, userid, symbol, price, cryptokey)
+
 	w.Write([]byte(body))
 }
 
@@ -67,6 +82,8 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 			err := dbactions.InsertUser(username, addMoney)
 			if err != nil {
 				w.Write([]byte("Failed to add user " + username + ".\n"))
+				logger.LogErrorEvent("add", username, "", addMoney, "Failed to add user to DB")
+
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			} else {
@@ -74,6 +91,8 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+
+		logger.LogErrorEvent("add", username, "", addMoney, "Failed to add user to DB")
 
 		w.Write([]byte("Failed to add user " + username + ".\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -85,10 +104,14 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 	balance += addMoneyFloat
 	balanceString := fmt.Sprintf("%f", balance)
 
+	logger.LogCommand("add", username, addMoney)
+
 	err = dbactions.UpdateUser(username, balanceString)
 
 	if err != nil {
 		w.Write([]byte("Failed to update user " + username + ".\n"))
+		logger.LogErrorEvent("add", username, "", addMoney, "Failed to update user to DB")
+
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -108,21 +131,30 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 
 	_, balance, err := dbutils.QueryUser(username)
 
+	money := strconv.FormatFloat(buyAmount, 'f', -1, 64)
+
+	logger.LogSystemEvnt("buy", username, stock, money)
+
 	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user.\n"))
 			http.Error(w, err.Error(), http.StatusForbidden)
+			logger.LogErrorEvent("buy", username, "", money, "Invalid user")
 			return
 		}
 		utils.LogErr(err)
 		w.Write([]byte("Error getting user data.\n"))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.LogErrorEvent("buy", username, "", money, "Error getting user data")
+
 		return
 	}
 
 	if balance < buyAmount {
 		w.Write([]byte("Insufficent balance."))
+		logger.LogErrorEvent("buy", username, "", money, "Not enough money to buy stocks")
+
 		return
 	}
 
@@ -170,12 +202,16 @@ func commitBuy(w http.ResponseWriter, r *http.Request) {
 	var requestParams = mux.Vars(r)
 	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
 
+	logger.LogCommand("commit buy", requestParams["username"], "")
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.LogErrorEvent("commit buy", requestParams["username"], "", "", "Error getting user data")
+
 		return
 	}
 
-	w.Write([]byte("Sucessfully comitted transaction."))
+	w.Write([]byte("Sucessfully committed transaction."))
 	return
 }
 
@@ -184,8 +220,11 @@ func cancelBuy(w http.ResponseWriter, r *http.Request) {
 	username := vars["username"]
 	err := dbactions.RemoveLastOrderTypeReservation(username, "buy")
 
+	logger.LogCommand("cancel buy", username, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.LogErrorEvent("cancel buy", username, "", "", "Cancel buy failed")
+
 		return
 	}
 
@@ -198,8 +237,12 @@ func cancelSell(w http.ResponseWriter, r *http.Request) {
 	username := vars["username"]
 	err := dbactions.RemoveLastOrderTypeReservation(username, "sell")
 
+	logger.LogCommand("cancel sell", username, "")
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.LogErrorEvent("cancel buy", username, "", "", "Cancel sell failed")
+
 		return
 	}
 
@@ -216,6 +259,8 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	stock := vars["stock"]
 	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
 
+	logger.LogCommand("sell order", username, "")
+
 	// confirm that user has enough valued stock
 	// to complete sell
 
@@ -224,6 +269,8 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("User has no shares of this stock."))
+			logger.LogErrorEvent("Sell Order", username, "", "", "User Has no Shares")
+
 			return
 		}
 		utils.LogErr(err)
@@ -243,6 +290,8 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	balance := quote * float64(userShares)
 
 	if balance < sellAmount {
+		logger.LogErrorEvent("Sell Order", username, "", "", "Insufficient Balance")
+
 		w.Write([]byte("Insufficent balance to sell stock."))
 		return
 	}
@@ -273,7 +322,11 @@ func commitSell(w http.ResponseWriter, r *http.Request) {
 	var requestParams = mux.Vars(r)
 	err := dbactions.CommitBuySellTransaction(requestParams["username"], orderType)
 
+	logger.LogCommand("Commit Sell", requestParams["username"], "")
+
 	if err != nil {
+		logger.LogErrorEvent("Commit Sell", requestParams["username"], "", "", "Commit Sell failed")
+
 		utils.LogErr(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -290,12 +343,16 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 	buyAmount, _ := strconv.ParseFloat(vars["amount"], 64)
 	orderType := "buy"
 
+	logger.LogCommand("Set Buy", username, "")
+
 	_, userBalance, err := dbutils.QueryUser(username)
 
 	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("Invalid user."))
+			logger.LogErrorEvent("Set Buy", username, "", "", "No User Found")
+
 			return
 		}
 		utils.LogErr(err)
@@ -305,13 +362,16 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if userBalance < buyAmount {
-		log.Printf("User balance: %f\nBuy amount: %f", buyAmount, userBalance)
+		logger.LogErrorEvent("Set Buy", username, "", "", "Insufficient Balance")
+
+		//log.Printf("User balance: %f\nBuy amount: %f", buyAmount, userBalance)
 		w.Write([]byte("Insufficent balance."))
 		return
 	}
 
 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
 	if totalValue > 0 || triggerPriceDB > 0 {
+		logger.LogErrorEvent("Set Buy", username, "", "", "SET BUY AMOUNT already exists for this stock and user combination.\nCancel current SET BUY and try again.\n")
 		w.Write([]byte("SET BUY AMOUNT already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
 		return
 	}
@@ -334,8 +394,12 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	triggerPrice := vars["triggerPrice"]
 	orderType := "buy"
 
+	logger.LogCommand("Set Buy trigger", username, "")
+
 	// invalid trigger price
 	if p, err := strconv.ParseFloat(triggerPrice, 64); p <= 0 || err != nil {
+		logger.LogErrorEvent("Set Buy Trigger", username, "", "", "Invalid trigger price. Trigger price must be greater than 0.")
+
 		w.Write([]byte("Invalid trigger price. Trigger price must be greater than 0.\n"))
 		return
 	}
@@ -345,6 +409,8 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			logger.LogErrorEvent("Set Buy Trigger", username, "", "", "SET BUY AMOUNT doesn't exist for this stock and user combination.")
+
 			w.Write([]byte("SET BUY AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
 			return
 		}
@@ -357,12 +423,15 @@ func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	// trigger already exists, return error
 	if totalValue > 0 && triggerPriceDB > 0 {
 		w.Write([]byte("SET BUY TRIGGER already exists for this stock and user combination.\nCancel current SET BUY and try again.\n"))
+		logger.LogErrorEvent("Set Buy Trigger", username, "", "", "SET BUY TRIGGER already exists for this stock and user combination.")
+
 		return
 	}
 
 	err = dbactions.SetBuyTrigger(username, stock, orderType, triggerPrice)
 	if err != nil {
 		w.Write([]byte("Failed to SET BUY trigger.\n"))
+		logger.LogErrorEvent("Set Buy Trigger", username, "", "", "Failed to SET BUY trigger.")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -378,6 +447,8 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	sellAmount, _ := strconv.ParseFloat(vars["amount"], 64)
 	orderType := "sell"
 
+	logger.LogCommand("Set Sell Amount", username, "")
+
 	// confirm that user has enough valued stock
 	// to complete sell
 
@@ -385,6 +456,7 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.Write([]byte("User has no shares of this stock."))
+			logger.LogErrorEvent("Set Sell Amount", username, "", "", "User has no shares of stock")
 			return
 		}
 		utils.LogErr(err)
@@ -394,6 +466,8 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 
 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, symbol, orderType)
 	if totalValue > 0 || triggerPriceDB > 0 {
+		logger.LogErrorEvent("Set Sell Amount", username, "", "", "SET SELL AMOUNT already exists for this stock and user combination.")
+
 		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
 		return
 	}
@@ -410,6 +484,8 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	balance := quote * float64(userShares)
 
 	if balance < sellAmount {
+		logger.LogErrorEvent("Set Sell Amount", username, "", "", "Insufficent balance to sell stock.")
+
 		w.Write([]byte("Insufficent balance to sell stock."))
 		return
 	}
@@ -417,6 +493,8 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	err = dbactions.SetUserOrderTypeAmount(nil, username, symbol, orderType, sellAmount, nil)
 
 	if err != nil {
+		logger.LogErrorEvent("Set Sell Amount", username, "", "", "Error setting SET SELL amount.")
+
 		w.Write([]byte("Error setting SET SELL amount."))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -433,14 +511,19 @@ func setSellTrigger(w http.ResponseWriter, r *http.Request) {
 	triggerPrice := vars["triggerPrice"]
 	orderType := "sell"
 
+	logger.LogCommand("Set Sell Trigger", username, "")
+
 	_, _, totalValue, triggerPriceDB, err := dbutils.QueryUserStockTrigger(username, stock, orderType)
 	if totalValue > 0 && triggerPriceDB > 0 {
+		logger.LogErrorEvent("Set Sell Trigger", username, "", "", "SET SELL AMOUNT already exists for this stock and user combination.")
+
 		w.Write([]byte("SET SELL AMOUNT already exists for this stock and user combination.\nCancel current SET SELL and try again.\n"))
 		return
 	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			logger.LogErrorEvent("Set Sell Trigger", username, "", "", "SET SELL AMOUNT doesn't exist for this stock and user combination.")
 			w.Write([]byte("SET SELL AMOUNT doesn't exist for this stock and user combination.\nCannot process trigger.\n"))
 			return
 		}
@@ -471,9 +554,13 @@ func executeTrigger(w http.ResponseWriter, r *http.Request) {
 	totalValue, _ := strconv.ParseFloat(vars["totalValue"], 64)
 	orderType := vars["orderType"]
 
+	logger.LogSystemEvnt("Sell Trigger executed", username, symbol, shares)
+
 	err := dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType)
 
 	if err != nil {
+		logger.LogErrorEvent(" Sell Trigger", username, "", "", "Trigger failed")
+
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -489,8 +576,12 @@ func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
 	symbol := vars["stock"]
 	err := dbactions.CancelSetTrigger(username, symbol, "buy")
 
+	logger.LogCommand("Cancel Set Buy", username, "")
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.LogErrorEvent("Cancel Set Buy", username, "", "", "Cancel Set Buy failed")
+
 		return
 	}
 
@@ -502,10 +593,15 @@ func cancelSetSell(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["stock"]
+
+	logger.LogCommand("Cancel Set Sell", username, "")
+
 	err := dbactions.CancelSetTrigger(username, symbol, "sell")
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.LogErrorEvent("Cancel Set Sell", username, "", "", "Cancel Set Buy failed")
+
 		return
 	}
 
@@ -600,6 +696,19 @@ func logHandler(fn http.HandlerFunc) http.HandlerFunc {
 }
 
 func main() {
+
+	logger.InitLogger()
+
+	//logger.LogCommand("add", "cameron", "100.00")
+
+	//logger.LogTransaction("buy", "sfsdf", "220.00")
+
+	//logger.LogSystemEvnt("sell", "username", "stocksymbol", "123.23")
+
+	//logger.LogQuoteServ("command", "username", "servertime", "stocksymbol", "price", "key")
+
+	//logger.LogErrorEvent("sell", "username", "stocksymbol", "123.23")
+
 	db = connectToDB()
 	defer db.Close()
 
