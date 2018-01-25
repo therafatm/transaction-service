@@ -12,7 +12,6 @@ import (
 	logger "transaction_service/logger"
 	"transaction_service/queries/actions"
 	"transaction_service/queries/utils"
-	"transaction_service/triggers/triggermanager"
 	"transaction_service/utils"
 
 	"github.com/gorilla/mux"
@@ -56,17 +55,12 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 	response := strings.Split(s, ",")
 
 	price := response[0]
-
 	symbol := response[1]
-
 	userid := response[2]
-
 	timestamp := response[3]
-
 	cryptokey := response[4]
 
 	logger.LogQuoteServ(timestamp, userid, symbol, price, cryptokey)
-
 	w.Write([]byte(body))
 }
 
@@ -700,13 +694,9 @@ func main() {
 	logger.InitLogger()
 
 	//logger.LogCommand("add", "cameron", "100.00")
-
 	//logger.LogTransaction("buy", "sfsdf", "220.00")
-
 	//logger.LogSystemEvnt("sell", "username", "stocksymbol", "123.23")
-
 	//logger.LogQuoteServ("command", "username", "servertime", "stocksymbol", "price", "key")
-
 	//logger.LogErrorEvent("sell", "username", "stocksymbol", "123.23")
 
 	db = connectToDB()
@@ -744,7 +734,7 @@ func main() {
 
 	http.Handle("/", router)
 
-	go triggermanager.Manage()
+	// go triggermanager.Manage()
 
 	if err := http.ListenAndServe(":"+strconv.Itoa(port), nil); err != nil {
 		log.Fatal(err)
