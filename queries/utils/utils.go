@@ -17,9 +17,6 @@ import (
 
 var db *sql.DB
 
-// var quoteServerPort = os.Getenv("QUOTE_SERVER_PORT")
-var quoteServerPort = "8000"
-
 func SetUtilsDB(database *sql.DB) {
 	db = database
 }
@@ -34,27 +31,25 @@ func GetQuoteServerURL() string {
 
 func QueryQuote(username string, stock string) ([]byte, error) {
 
-	var body []byte
+	var body = make([]byte, 1024)
 	var err error
 
 	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
 
 	if env == true {
-		ip := os.Getenv("QUOTE_SERVER_HOST")
-		port := os.Getenv("QUOTE_SERVER_PORT")
+		ip := "192.168.1.152"
+		port := "4445"
 		addr := strings.Join([]string{ip, port}, ":")
-		log.Println("ADDR: " + addr)
 		conn, err := net.DialTimeout("tcp", addr, time.Second*10)
 		if err != nil {
 			return body, err
 		}
 		defer conn.Close()
 
-		msg := stock + "," + username
+		msg := stock + "," + username + "\n"
 		conn.Write([]byte(msg))
 
-		buff := make([]byte, 1024)
-		body, _ := conn.Read(buff)
+		_, err = conn.Read(body)
 		log.Println(string(body))
 	} else {
 		URL := GetQuoteServerURL()
