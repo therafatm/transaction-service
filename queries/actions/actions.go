@@ -130,49 +130,25 @@ func RemoveLastOrderTypeReservation(username string, orderType models.OrderType)
 	return
 }
 
-func ExecuteSetBuyAmount(username string, symbol string, orderType models.OrderType, buyAmount int) (tid int64, err error) {
-	tx, err := db.Begin()
 
-	tid, err = SetUserOrderTypeAmount(tx, username, symbol, orderType, buyAmount)
-	if err != nil {
-		utils.LogErr(err)
-		return
-	}
-
-	err = UpdateUserMoney(tx, username, buyAmount, orderType)
-	if err != nil {
-		utils.LogErr(err)
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		utils.LogErr(err)
-		tx.Rollback()
-		return
-	}
-
-	return
-}
-
-func SetUserOrderTypeAmount(tx *sql.Tx, username string, stock string, orderType models.OrderType, amount int) (tid int64, err error) {
+func SetUserOrderTypeAmount(tx *sql.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
 	query := "INSERT INTO triggers(username, symbol, type, amount, shares, trigger_price, executable, time) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING tid"
 	t := time.Now().Unix()
 	if tx != nil {
-		err = tx.QueryRow(query, username, stock, orderType, amount, 0, 0, false, t).Scan(&tid)
+		err = tx.QueryRow(query, username, symbol, orderType, amount, 0, 0, false, t).Scan(&tid)
 	} else {
-		err = db.QueryRow(query, username, stock, orderType, amount, 0, 0, false, t).Scan(&tid)
+		err = db.QueryRow(query, username, symbol, orderType, amount, 0, 0, false, t).Scan(&tid)
 	}
 	return
 }
 
-func RemoveUserStockTrigger(tx *sql.Tx, username string, stock string, orderType models.OrderType) (trig models.Trigger, err error) {
-	query := `DELETE FROM triggers WHERE username=$1 AND symbol=$2 AND type=$3 
-				RETURNING tid, username, symbol, type, amount, shares, trigger_price, executable, time`
+func RemoveUserStockTrigger(tx *sql.Tx, tid int64) (trig models.Trigger, err error) {
+	query := `DELETE FROM triggers WHERE tid=$1 RETURNING tid, username, symbol, type, amount, shares, trigger_price, executable, time`
 	if tx != nil {
-		err = tx.QueryRow(query, username, stock, orderType).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
+		err = tx.QueryRow(query, tid).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
 						&trig.Order, &trig.Amount, &trig.Shares, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	} else {
-		err = db.QueryRow(query, username, stock, orderType).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
+		err = db.QueryRow(query, tid).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
 						&trig.Order, &trig.Amount, &trig.Shares, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	}
 	return
@@ -191,6 +167,76 @@ func UpdateUserStockTriggerPrice(username string, stock string, orderType string
 
 	if err != nil {
 		utils.LogErr(err)
+	}
+
+	return
+}
+
+func CommitSetOrderTransaction(username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	if orderType == models.BUY {
+		err = UpdateUserMoney(tx, username, amount, orderType)
+	}else{
+		//TODO: check for sell
+		err = UpdateUserStock(tx, username, symbol, amount, orderType)
+	}
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	//TODO: check for sell
+	tid, err = SetUserOrderTypeAmount(tx, username, symbol, orderType, amount)
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return
+	}
+
+	return
+}
+
+
+func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	if trig.Order == models.BUY {
+		err = UpdateUserMoney(tx, trig.Username, trig.Amount, models.SELL)
+	}else{
+		//TODO: check for sell
+		err = UpdateUserStock(tx, trig.Username, trig.Symbol, trig.Amount, models.BUY)
+	}
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	rtrig, err = RemoveUserStockTrigger(tx, trig.ID)
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		utils.LogErr(err)
+		tx.Rollback()
+		return
 	}
 
 	return
@@ -276,39 +322,6 @@ func SetBuyTrigger(username string, symbol string, orderType string, triggerPric
 
 // 	return
 // }
-
-func CancelSetTrigger(username string, symbol string, orderType models.OrderType) (trig models.Trigger, err error) {
-	trig, err = dbutils.QueryUserTrigger(username, symbol, orderType)
-	if err != nil {
-		return
-	}
-
-	tx, err := db.Begin()
-
-	if trig.Order == models.SELL {
-		err = UpdateUserStock(tx, trig.Username, trig.Symbol, trig.Shares, models.BUY)
-	} else {
-		err = UpdateUserMoney(tx, trig.Username, trig.Amount, models.SELL)
-	}
-	if err != nil {
-		tx.Rollback()
-		return
-	}
-
-	trig, err = RemoveUserStockTrigger(tx, trig.Username, trig.Symbol, trig.Order)
-	if err != nil {
-		tx.Rollback()
-		return
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		tx.Rollback()
-		return
-	}
-
-	return
-}
 
 // func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) (err error) {
 

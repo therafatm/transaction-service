@@ -43,17 +43,14 @@ func QueryQuote(username string, stock string) (body []byte, err error) {
 }
 
 func QueryUserAvailableBalance(username string) ( balance int, err error) {
-	query := `SELECT (SELECT money FROM USERS WHERE username = $1) -
-			 (SELECT COALESCE(SUM(amount), 0) FROM RESERVATIONS WHERE username = $1 and type = $2)
-			 as available_balance;`
-	err = db.QueryRow(query, username, models.BUY).Scan(&balance)
+	query := `SELECT (SELECT money FROM USERS WHERE username = $1) as available_balance;`
+	err = db.QueryRow(query, username).Scan(&balance)
 	return
 }
 
 func QueryUserAvailableShares(username string, symbol string) (shares int, err error) {
-	query := `SELECT (SELECT COALESCE(SUM(shares), 0) FROM Stocks WHERE username = $1 and symbol = $2) -
-			 (SELECT COALESCE(SUM(shares), 0) FROM RESERVATIONS WHERE username = $1 and type = $3);`
-	err = db.QueryRow(query, username, symbol, models.SELL).Scan(&shares)
+	query := `SELECT (SELECT COALESCE(SUM(shares), 0) FROM Stocks WHERE username = $1 and symbol = $2)`
+	err = db.QueryRow(query, username, symbol).Scan(&shares)
 	return 
 }
 
