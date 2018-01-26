@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	//"transaction_service/utils"
-	"transaction_service/queries/models"
 	logger "transaction_service/logger"
+	"transaction_service/queries/models"
+	"transaction_service/utils"
 )
 
 var db *sql.DB
@@ -21,35 +24,57 @@ func SetUtilsDB(database *sql.DB) {
 	db = database
 }
 
-func ScanTrigger(row *sql.Row) (trig models.Trigger, err error){
+func ScanTrigger(row *sql.Row) (trig models.Trigger, err error) {
 	err = row.Scan(&trig.ID, &trig.Username, &trig.Symbol, &trig.Order, &trig.Amount, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	return
 }
 
-func ScanTriggerRows(rows *sql.Rows) (trig models.Trigger, err error){
+func ScanTriggerRows(rows *sql.Rows) (trig models.Trigger, err error) {
 	err = rows.Scan(&trig.ID, &trig.Username, &trig.Symbol, &trig.Order, &trig.Amount, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	return
 }
 
 func GetQuoteServerURL() string {
-    port := os.Getenv("QUOTE_SERVER_PORT")
-    host := os.Getenv("QUOTE_SERVER_HOST")
-    url := fmt.Sprintf("http://%s:%s", host, port)
-    return string(url)
+	port := os.Getenv("QUOTE_SERVER_PORT")
+	host := os.Getenv("QUOTE_SERVER_HOST")
+	url := fmt.Sprintf("http://%s:%s", host, port)
+	return string(url)
 }
 
-func QueryQuote(username string, stock string) (body []byte, err error) {
-	URL := GetQuoteServerURL()
-	log.Println(URL)
-	res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
+func QueryQuote(username string, stock string) ([]byte, error) {
 
-	if err != nil {
-		return
-	} else {
-		body, err = ioutil.ReadAll(res.Body)
+	var body = make([]byte, 1024)
+	var err error
+
+	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
+
+	if env == true {
+		ip := "192.168.1.152"
+		port := "4445"
+		addr := strings.Join([]string{ip, port}, ":")
+		conn, err := net.DialTimeout("tcp", addr, time.Second*10)
+		if err != nil {
+			return body, err
+		}
+		defer conn.Close()
+
+		msg := stock + "," + username + "\n"
+		conn.Write([]byte(msg))
+
+		_, err = conn.Read(body)
 		log.Println(string(body))
+	} else {
+		URL := GetQuoteServerURL()
+		res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock + "/0")
+		if err != nil {
+			utils.LogErr(err)
+		} else {
+			body, err = ioutil.ReadAll(res.Body)
+			log.Println(string(body))
+		}
 	}
-	return
+
+	return body, err
 }
 
 func QueryQuotePrice(username string, symbol string) (quote int, err error) {
@@ -60,7 +85,7 @@ func QueryQuotePrice(username string, symbol string) (quote int, err error) {
 
 	split := strings.Split(string(body), ",")
 
-	priceStr :=  strings.Replace(split[0], ".", "", 1)
+	priceStr := strings.Replace(split[0], ".", "", 1)
 	quote, err = strconv.Atoi(priceStr)
 	if err != nil {
 		return
@@ -70,7 +95,7 @@ func QueryQuotePrice(username string, symbol string) (quote int, err error) {
 	return
 }
 
-func QueryUserAvailableBalance(username string) ( balance int, err error) {
+func QueryUserAvailableBalance(username string) (balance int, err error) {
 	query := `SELECT (SELECT money FROM USERS WHERE username = $1) as available_balance;`
 	err = db.QueryRow(query, username).Scan(&balance)
 	return
@@ -79,7 +104,7 @@ func QueryUserAvailableBalance(username string) ( balance int, err error) {
 func QueryUserAvailableShares(username string, symbol string) (shares int, err error) {
 	query := `SELECT (SELECT COALESCE(SUM(shares), 0) FROM Stocks WHERE username = $1 and symbol = $2)`
 	err = db.QueryRow(query, username, symbol).Scan(&shares)
-	return 
+	return
 }
 
 func QueryUser(username string) (user models.User, err error) {
@@ -91,19 +116,19 @@ func QueryUser(username string) (user models.User, err error) {
 func QueryUserStock(username string, symbol string) (stock models.Stock, err error) {
 	query := "SELECT sid, username, symbol, shares FROM stocks WHERE username = $1 AND symbol = $2"
 	err = db.QueryRow(query, username, symbol).Scan(&stock.ID, &stock.Username, &stock.Symbol, &stock.Shares)
-	return 
+	return
 }
 
 func QueryStockTrigger(tid int64) (trig models.Trigger, err error) {
 	query := "SELECT tid, username, symbol, type, amount, trigger_price, executable, time FROM triggers WHERE tid = $1"
 	trig, err = ScanTrigger(db.QueryRow(query, tid))
-	return 
+	return
 }
 
 func QueryUserTrigger(username string, symbol string, orderType models.OrderType) (trig models.Trigger, err error) {
 	query := "SELECT tid, username, symbol, type, amount, trigger_price, executable, time FROM triggers WHERE username = $1 AND symbol=$2 AND type=$3"
 	trig, err = ScanTrigger(db.QueryRow(query, username, symbol, orderType))
-	return 
+	return
 }
 
 func QueryReservation(rid int64) (res models.Reservation, err error) {
