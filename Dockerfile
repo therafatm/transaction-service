@@ -5,6 +5,7 @@ EXPOSE 8888
 COPY . /go/src/transaction_service
 WORKDIR /go/src/transaction_service
 
+RUN apt-get update && apt-get install nano
 RUN go get github.com/pilu/fresh
 RUN go get ./...
 

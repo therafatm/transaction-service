@@ -33,6 +33,7 @@ func QueryQuote(username string, stock string) ([]byte, error) {
 
 	var body = make([]byte, 1024)
 	var err error
+	var StopCharacter = "\r\n\r\n"
 
 	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
 
@@ -48,6 +49,7 @@ func QueryQuote(username string, stock string) ([]byte, error) {
 
 		msg := stock + "," + username + "\n"
 		conn.Write([]byte(msg))
+		conn.Write([]byte(StopCharacter))
 
 		_, err = conn.Read(body)
 		log.Println(string(body))
