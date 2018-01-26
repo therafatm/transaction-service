@@ -16,6 +16,7 @@ import (
 	"transaction_service/queries/models"
 	//"transaction_service/triggers/triggermanager"
 	"transaction_service/utils"
+	logger "transaction_service/logger"
 
 
 	"github.com/gorilla/mux"
@@ -41,6 +42,8 @@ func connectToDB() *sql.DB {
 
 	db, err := sql.Open("postgres", config)
 	utils.CheckErr(err)
+
+	logger.InitLogger()
 
 	return db
 }
@@ -73,6 +76,7 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(body))
 }
 
+//TODO: refactor
 func clearUsers(w http.ResponseWriter, r *http.Request) {
 	err := dbactions.ClearUsers()
 	if err != nil {
@@ -670,28 +674,28 @@ func main() {
 
 	
 	router.HandleFunc("/api/clearUsers", logHandler(clearUsers))
-	router.HandleFunc("/api/availableBalance/{username}", logHandler(availableBalance))
-	router.HandleFunc("/api/availableShares/{username}/{symbol}", logHandler(availableShares))
+	router.HandleFunc("/api/availableBalance/{username}/{trans}", logHandler(availableBalance))
+	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", logHandler(availableShares))
 
 
-	router.HandleFunc("/api/add/{username}/{money}", logHandler(addUser))
-	router.HandleFunc("/api/getQuote/{username}/{stock}", logHandler(getQuoute))
+	router.HandleFunc("/api/add/{username}/{money}/{trans}", logHandler(addUser))
+	router.HandleFunc("/api/getQuote/{username}/{stock}/{trans}", logHandler(getQuoute))
 
-	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}", logHandler(buyOrder))
-	router.HandleFunc("/api/commitBuy/{username}", logHandler(commitBuy))
-	router.HandleFunc("/api/cancelBuy/{username}", logHandler(cancelBuy))
+	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", logHandler(buyOrder))
+	router.HandleFunc("/api/commitBuy/{username}/{trans}", logHandler(commitBuy))
+	router.HandleFunc("/api/cancelBuy/{username}/{trans}", logHandler(cancelBuy))
 
-	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}", logHandler(sellOrder))
-	router.HandleFunc("/api/commitSell/{username}", logHandler(commitSell))
-	router.HandleFunc("/api/cancelSell/{username}", logHandler(cancelSell))
+	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", logHandler(sellOrder))
+	router.HandleFunc("/api/commitSell/{username}/{trans}", logHandler(commitSell))
+	router.HandleFunc("/api/cancelSell/{username}/{trans}", logHandler(cancelSell))
 
-	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}", logHandler(setBuyAmount))
-	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}", logHandler(setBuyTrigger))
-	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}", logHandler(cancelSetBuy))
+	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setBuyAmount))
+	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setBuyTrigger))
+	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", logHandler(cancelSetBuy))
 
-	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}", logHandler(setSellAmount))
-	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}", logHandler(cancelSetSell))
-	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}", logHandler(setSellTrigger))
+	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setSellAmount))
+	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", logHandler(cancelSetSell))
+	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setSellTrigger))
 
 	router.HandleFunc("/api/executeTriggers/{username}", logHandler(executeTriggerTest))
 

@@ -12,6 +12,7 @@ import (
 
 	//"transaction_service/utils"
 	"transaction_service/queries/models"
+	logger "transaction_service/logger"
 )
 
 var db *sql.DB
@@ -56,11 +57,16 @@ func QueryQuotePrice(username string, symbol string) (quote int, err error) {
 	if err != nil {
 		return
 	}
-	priceStr :=  strings.Replace(strings.Split(string(body), ",")[0], ".", "", 1)
+
+	split := strings.Split(string(body), ",")
+
+	priceStr :=  strings.Replace(split[0], ".", "", 1)
 	quote, err = strconv.Atoi(priceStr)
 	if err != nil {
 		return
 	}
+
+	logger.LogQuoteServ(username, split[0], split[1], split[2], split[3])
 	return
 }
 
