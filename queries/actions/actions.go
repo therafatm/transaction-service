@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"transaction_service/logger"
 	"transaction_service/queries/models"
 	"transaction_service/queries/utils"
 	"transaction_service/utils"
@@ -81,7 +82,7 @@ func UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, ord
 	return
 }
 
-func UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderType) (err error) {
+func UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderType, trans string) (err error) {
 	user, err := dbutils.QueryUser(username)
 	if err != nil {
 		return
@@ -89,8 +90,11 @@ func UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderT
 
 	if order == models.BUY {
 		user.Money -= money
+		logger.LogTransaction("remove", username, money, trans)
+
 	} else {
 		user.Money += money
+		logger.LogTransaction("add", username, money, trans)
 	}
 
 	query := "UPDATE users SET money=$1 WHERE username=$2"
@@ -169,7 +173,7 @@ func UpdateUserStockTriggerPrice(username string, stock string, orderType string
 	return
 }
 
-func CommitSetOrderTransaction(username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
+func CommitSetOrderTransaction(username string, symbol string, orderType models.OrderType, amount int, trans string) (tid int64, err error) {
 	tx, err := db.Begin()
 	if err != nil {
 		tx.Rollback()
@@ -177,7 +181,7 @@ func CommitSetOrderTransaction(username string, symbol string, orderType models.
 	}
 
 	if orderType == models.BUY {
-		err = UpdateUserMoney(tx, username, amount, orderType)
+		err = UpdateUserMoney(tx, username, amount, orderType, trans)
 	} else {
 		//TODO: check for sell
 		err = UpdateUserStock(tx, username, symbol, amount, orderType)
@@ -204,7 +208,7 @@ func CommitSetOrderTransaction(username string, symbol string, orderType models.
 	return
 }
 
-func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err error) {
+func CancelOrderTransaction(trig models.Trigger, trans string) (rtrig models.Trigger, err error) {
 	tx, err := db.Begin()
 	if err != nil {
 		tx.Rollback()
@@ -212,7 +216,7 @@ func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err erro
 	}
 
 	if trig.Order == models.BUY {
-		err = UpdateUserMoney(tx, trig.Username, trig.Amount, models.SELL)
+		err = UpdateUserMoney(tx, trig.Username, trig.Amount, models.SELL, trans)
 	} else {
 		err = UpdateUserStock(tx, trig.Username, trig.Symbol, trig.Amount, models.BUY)
 	}
@@ -237,7 +241,7 @@ func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err erro
 	return
 }
 
-func CommitBuySellTransaction(res models.Reservation) (err error) {
+func CommitBuySellTransaction(res models.Reservation, trans string) (err error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return
@@ -249,7 +253,7 @@ func CommitBuySellTransaction(res models.Reservation) (err error) {
 		return
 	}
 
-	err = UpdateUserMoney(tx, res.Username, res.Amount, res.Order)
+	err = UpdateUserMoney(tx, res.Username, res.Amount, res.Order, trans)
 	if err != nil {
 		tx.Rollback()
 		return
@@ -285,12 +289,12 @@ func QueryAndExecuteCurrentTriggers(trans string) (rTrigs []models.Trigger, err 
 			if err == nil {
 				if trig.Order == models.BUY {
 					if quote <= trig.TriggerPrice {
-						trig, err = ExecuteTrigger(trig, quote)
+						trig, err = ExecuteTrigger(trig, quote, trans)
 					}
 
 				} else {
 					if quote >= trig.TriggerPrice {
-						trig, err = ExecuteTrigger(trig, quote)
+						trig, err = ExecuteTrigger(trig, quote, trans)
 					}
 				}
 				if err == nil {
@@ -302,7 +306,7 @@ func QueryAndExecuteCurrentTriggers(trans string) (rTrigs []models.Trigger, err 
 	return
 }
 
-func ExecuteTrigger(trig models.Trigger, quote int) (rtrig models.Trigger, err error) {
+func ExecuteTrigger(trig models.Trigger, quote int, trans string) (rtrig models.Trigger, err error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return
@@ -320,7 +324,7 @@ func ExecuteTrigger(trig models.Trigger, quote int) (rtrig models.Trigger, err e
 		}
 
 		//add remainder back
-		err = UpdateUserMoney(tx, trig.Username, remainder, models.SELL)
+		err = UpdateUserMoney(tx, trig.Username, remainder, models.SELL, trans)
 		if err != nil {
 			tx.Rollback()
 			return
@@ -328,7 +332,7 @@ func ExecuteTrigger(trig models.Trigger, quote int) (rtrig models.Trigger, err e
 
 	} else {
 		// add spendings
-		err = UpdateUserMoney(tx, trig.Username, trig.Amount, trig.Order)
+		err = UpdateUserMoney(tx, trig.Username, trig.Amount, trig.Order, trans)
 		if err != nil {
 			tx.Rollback()
 			return

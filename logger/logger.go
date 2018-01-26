@@ -63,7 +63,7 @@ type LogType struct {
 	AccountTransaction *AccountTransactionType `xml:"accountTransaction,omitempty"`
 	SystemEvent        *SystemEventType        `xml:"systemEvent,omitempty"`
 	QuoteServer        *QuoteServerType        `xml:"quoteServer,omitempty"`
-	ErrorEvent         *ErrorEventType         `xml:"errorEventm,omitempty"`
+	ErrorEvent         *ErrorEventType         `xml:"errorEvent,omitempty"`
 }
 
 type UserCommandType struct {
@@ -81,7 +81,7 @@ type AccountTransactionType struct {
 	Timestamp         string `xml:"timestamp"`
 	Server            string `xml:"server"`
 	TransactionNumber string `xml:"transactionNum"`
-	Command           string `xml:"action"`
+	Action            string `xml:"action"`
 	Username          string `xml:"username"`
 	Funds             string `xml:"funds"`
 }
@@ -90,9 +90,9 @@ type SystemEventType struct {
 	Timestamp         string `xml:"timestamp"`
 	Server            string `xml:"server"`
 	TransactionNumber string `xml:"transactionNum"`
-	Command           string `xml:"action"`
+	Command           string `xml:"command"`
 	Username          string `xml:"username"`
-	StockSymbol       string `xml:"stockSymbol"`
+	Symbol            string `xml:"stockSymbol"`
 	Funds             string `xml:"funds"`
 }
 
@@ -102,20 +102,20 @@ type QuoteServerType struct {
 	TransactionNumber string `xml:"transactionNum"`
 	QuoteServerTime   string `xml:"quoteServerTime"`
 	Username          string `xml:"username"`
-	StockSymbol       string `xml:"stockSymbol"`
+	Symbol            string `xml:"stockSymbol"`
 	Price             string `xml:"price"`
 	CryptoKey         string `xml:"cryptokey"`
 }
 
 type ErrorEventType struct {
-	Timestamp         string `xml:"timestamp"`
-	Server            string `xml:"server"`
-	TransactionNumber string `xml:"transactionNum"`
-	Command           string `xml:"action"`
-	Username          string `xml:"username"`
-	StockSymbol       string `xml:"stockSymbol"`
-	Funds             string `xml:"funds"`
-	ErrorMessage      string `xml:"error"`
+	Timestamp         string  `xml:"timestamp"`
+	Server            string  `xml:"server"`
+	TransactionNumber string  `xml:"transactionNum"`
+	Command           Command `xml:"command"`
+	Username          string  `xml:"username,omitempty"`
+	Symbol            string  `xml:"stockSymbol,omitempty"`
+	Funds             string  `xml:"funds,omitempty"`
+	ErrorMessage      string  `xml:"errorMessage,omitempty"`
 }
 
 const server = "transaction"
@@ -124,12 +124,16 @@ const schemaFile = "logger/schema.xsd"
 const prefix = ""
 const indent = "\t"
 
-func formatBalance(balance string) string {
-	b, err := strconv.Atoi(balance)
+func formatStrAmount(amount string) string {
+	b, err := strconv.Atoi(amount)
 	if err != nil {
 		panic(err)
 	}
 	return fmt.Sprintf("%d.%d", b/100, b%100)
+}
+
+func formatAmount(amount int) string {
+	return fmt.Sprintf("%d.%d", amount/100, amount%100)
 }
 
 func getUnixTimestamp() string {
@@ -197,7 +201,7 @@ func LogCommand(command Command, vars map[string]string) {
 			v.Filename = val
 		}
 		if val, exist := vars["amount"]; exist {
-			v.Funds = formatBalance(val)
+			v.Funds = formatStrAmount(val)
 		}
 
 		logEntry := LogType{UserCommand: &v}
@@ -224,7 +228,7 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 		Server:            server,
 		QuoteServerTime:   quoteTimestamp,
 		Username:          username,
-		StockSymbol:       stocksymbol,
+		Symbol:            stocksymbol,
 		Price:             price,
 		CryptoKey:         cryptokey,
 		TransactionNumber: trans}
@@ -240,26 +244,31 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 	validateSchema(output)
 }
 
-// func LogTransaction(command string, username string, funds string) {
+func LogTransaction(action string, username string, amount int, trans string) {
+	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
 
-// 	file, err := os.OpenFile("log.xsd", os.O_APPEND|os.O_WRONLY, 0600)
-// 	if err != nil {
-// 		panic(err)
-// 	}
+	timestamp := getUnixTimestamp()
+	v := AccountTransactionType{
+		Timestamp:         timestamp,
+		Server:            server,
+		TransactionNumber: trans,
+		Username:          username,
+		Action:            action,
+		Funds:             formatAmount(amount)}
 
-// 	v := &AccountTransaction{Timestamp: strconv.FormatInt(time.Now().UTC().UnixNano(), 10), Server: 1, Command: command, Username: username, Funds: funds}
+	logEntry := LogType{AccountTransaction: &v}
 
-// 	output, err := xml.MarshalIndent(v, "  ", "    ")
-
-// 	if err != nil {
-
-// 		fmt.Printf("error: %v\n", err)
-
-// 	}
-
-// 	file.Write(output)
-
-// }
+	output, err := xml.MarshalIndent(logEntry, prefix, indent)
+	if err != nil {
+		panic(err)
+	}
+	file.Write(output)
+	validateSchema(output)
+}
 
 // func LogSystemEvnt(command string, username string, stocksymbol string, funds string) {
 
@@ -282,23 +291,41 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 
 // }
 
-// func LogErrorEvent(command string, username string, stocksymbol string, funds string, emessage string) {
+func LogErrorEvent(command Command, vars map[string]string, emessage string) {
+	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
 
-// 	file, err := os.OpenFile("log.xsd", os.O_APPEND|os.O_WRONLY, 0600)
-// 	if err != nil {
-// 		panic(err)
-// 	}
+	timestamp := getUnixTimestamp()
+	v := ErrorEventType{
+		Timestamp:    timestamp,
+		Server:       server,
+		Command:      command,
+		ErrorMessage: emessage}
 
-// 	v := ErrorEvent{Timestamp: strconv.FormatInt(time.Now().UTC().UnixNano(), 10), Server: 1, Command: command, Username: username, StockSymbol: stocksymbol, Funds: funds, ErrorMessage: emessage}
+	if val, exist := vars["trans"]; exist {
+		v.TransactionNumber = val
+	}
+	if val, exist := vars["username"]; exist {
+		v.Username = val
+	}
+	if val, exist := vars["symbol"]; exist {
+		v.Symbol = val
+	}
+	if val, exist := vars["amount"]; exist {
+		v.Funds = formatStrAmount(val)
+	}
 
-// 	output, err := xml.MarshalIndent(v, "  ", "    ")
+	logEntry := LogType{ErrorEvent: &v}
+	output, err := xml.MarshalIndent(logEntry, prefix, indent)
+	if err != nil {
+		panic(err)
+	}
 
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	file.Write(output)
-// }
+	file.Write(output)
+	validateSchema(output)
+}
 
 func InitLogger() {
 	_, err := os.Create(logfile)

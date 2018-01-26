@@ -6,8 +6,6 @@
   </xsd:documentation>
  </xsd:annotation>
 
- <!-- <xsd:element name="log" type="LogType"/> -->
-
  <xsd:element name="log" type="LogType"/> 
 
 <!-- The log file created by the students consists of user commands, quote server
@@ -117,8 +115,8 @@ addition to an optional debug message -->
  <xsd:simpleType name="unixTimeLimits">
   <xsd:restriction base="xsd:integer">
 
-	 <xsd:minInclusive value="1514793600000"/> <!-- Jan 1, 2017 -->
-	 <xsd:maxInclusive value="1522566000000"/><!--May 1, 2017 -->
+      <xsd:minInclusive value="1514764800000"/> <!-- Jan 1, 2018-->
+      <xsd:maxInclusive value="1525132800000"/> <!-- May 1, 2018 -->
 
 
 </xsd:restriction>

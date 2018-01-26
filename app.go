@@ -25,6 +25,8 @@ import (
 
 var db *sql.DB
 
+type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logger.Command)
+
 func connectToDB() *sql.DB {
 	var (
 		host     = os.Getenv("POSTGRES_HOST")
@@ -47,7 +49,8 @@ func connectToDB() *sql.DB {
 	return db
 }
 
-func respondWithError(w http.ResponseWriter, code int, err error, message string) {
+func respondWithError(w http.ResponseWriter, code int, err error, message string, command logger.Command, vars map[string]string) {
+	logger.LogErrorEvent(command, vars, message)
 	utils.LogErr(err)
 	fmt.Println(message)
 	respondWithJSON(w, code, map[string]string{"error": err.Error(), "message": message})
@@ -62,7 +65,7 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 }
 
 //TODO: refactor  + test
-func getQuoute(w http.ResponseWriter, r *http.Request) {
+func getQuoute(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	body, err := dbutils.QueryQuote(vars["username"], vars["stock"])
 
@@ -76,18 +79,19 @@ func getQuoute(w http.ResponseWriter, r *http.Request) {
 }
 
 //TODO: refactor
-func clearUsers(w http.ResponseWriter, r *http.Request) {
+func clearUsers(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	vars := mux.Vars(r)
 	err := dbactions.ClearUsers()
 	if err != nil {
 		errMsg := "Failed to clear users"
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Cleared users succesfully."))
 }
 
-func addUser(w http.ResponseWriter, r *http.Request) {
+func addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	moneyStr := vars["money"]
@@ -95,7 +99,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 
 	money, err := strconv.Atoi(moneyStr)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -106,13 +110,13 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		newUser := models.User{Username: username, Money: money}
 		_, err := dbactions.InsertUser(newUser)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
 		}
 
 	} else if err != nil {
 		// error
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 
 	} else {
@@ -121,39 +125,39 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		_, err = dbactions.UpdateUser(user)
 
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
 		}
 	}
 
 	user, err = dbutils.QueryUser(username)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, user)
 }
 
-func availableBalance(w http.ResponseWriter, r *http.Request) {
+func availableBalance(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 
 	_, err := dbutils.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	} else if err != nil {
 		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	balance, err := dbutils.QueryUserAvailableBalance(username)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	var m map[string]int
@@ -163,7 +167,7 @@ func availableBalance(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, m)
 }
 
-func availableShares(w http.ResponseWriter, r *http.Request) {
+func availableShares(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -171,18 +175,18 @@ func availableShares(w http.ResponseWriter, r *http.Request) {
 	_, err := dbutils.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	} else if err != nil {
 		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	balance, err := dbutils.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	var m map[string]int
@@ -192,7 +196,7 @@ func availableShares(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, m)
 }
 
-func buyOrder(w http.ResponseWriter, r *http.Request) {
+func buyOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -201,7 +205,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -211,26 +215,26 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
 		}
 
 		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	if balance < buyAmount {
 		errMsg := fmt.Sprintf("User does not have enough money to complete order %d < %d.", balance, buyAmount)
 		err = errors.New("Error not enough money.")
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -242,14 +246,14 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	rid, err := dbactions.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	reserv, err := dbutils.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -259,7 +263,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	go dbactions.RemoveOrder(rid, 60)
 }
 
-func sellOrder(w http.ResponseWriter, r *http.Request) {
+func sellOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -268,14 +272,14 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -284,14 +288,14 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	availableShares, err := dbutils.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error querying available shares for %s: %s.", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	if availableShares < sharesToSell {
 		errMsg := fmt.Sprintf("User does not have enough shares to complete order %d < %d", availableShares, sharesToSell)
 		err = errors.New("Error not enough shares.")
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -303,14 +307,14 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	rid, err := dbactions.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting sell order."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	reserv, err := dbutils.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -320,18 +324,19 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	go dbactions.RemoveOrder(rid, 60)
 }
 
-func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
-	var requestParams = mux.Vars(r)
-	username := requestParams["username"]
+func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
+	var vars = mux.Vars(r)
+	username := vars["username"]
+	trans := vars["trans"]
 
 	res, err := dbutils.QueryLastReservation(username, orderType)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	} else if err != nil {
 		errMsg := fmt.Sprintf("Error finding last %s reservation.", orderType)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -351,90 +356,91 @@ func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderT
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
 		}
 
 		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	if balance < amount {
 		errMsg := fmt.Sprintf("User does not have enough resources to complete order %d < %d.", balance, amount)
 		err = errors.New("Error not enough resources.")
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	err = dbactions.CommitBuySellTransaction(res)
+	err = dbactions.CommitBuySellTransaction(res, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error commiting  %s order.", orderType)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	stock, err := dbutils.QueryUserStock(res.Username, res.Symbol)
 	if err != nil {
 		errMsg := "Error could not find updated stock."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 	}
 
 	respondWithJSON(w, http.StatusOK, stock)
 	return
 }
 
-func commitBuy(w http.ResponseWriter, r *http.Request) {
-	commitOrder(w, r, models.BUY)
+func commitBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	commitOrder(w, r, models.BUY, command)
 }
 
-func commitSell(w http.ResponseWriter, r *http.Request) {
-	commitOrder(w, r, models.SELL)
+func commitSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	commitOrder(w, r, models.SELL, command)
 }
 
-func cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
+func cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	res, err := dbactions.RemoveLastOrderTypeReservation(username, orderType)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error deleting last %s reservation.", orderType)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	respondWithJSON(w, http.StatusOK, res)
 	return
 }
 
-func cancelSell(w http.ResponseWriter, r *http.Request) {
-	cancelOrder(w, r, models.SELL)
+func cancelSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	cancelOrder(w, r, models.SELL, command)
 }
 
-func cancelBuy(w http.ResponseWriter, r *http.Request) {
-	cancelOrder(w, r, models.BUY)
+func cancelBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	cancelOrder(w, r, models.BUY, command)
 }
 
-func setBuyAmount(w http.ResponseWriter, r *http.Request) {
+func setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
+	trans := vars["trans"]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	trig, err := dbutils.QueryUserTrigger(username, symbol, models.BUY)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	if err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.BUY, username, symbol)
 		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.BUY, username, symbol))
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -443,40 +449,40 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
 		}
 
 		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	if balance < buyAmount {
 		errMsg := fmt.Sprintf("User does not have enough money to complete trigger %d < %d.", balance, buyAmount)
 		err = errors.New("Error not enough money.")
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount)
+	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting buy amount for %s: %s", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	trig, err = dbutils.QueryStockTrigger(tid)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error trigger %d not found after insert.", tid)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setSellAmount(w http.ResponseWriter, r *http.Request) {
+func setSellAmount(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -485,34 +491,34 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	availableShares, err := dbutils.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	trig, err := dbutils.QueryUserTrigger(username, symbol, models.SELL)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	if err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.SELL, username, symbol)
 		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.SELL, username, symbol))
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -521,48 +527,48 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	if availableShares < sellShares {
 		errMsg := fmt.Sprintf("User does not have enough stock to complete trigger %d < %d.", availableShares, sellShares)
 		err = errors.New("Error not enough stock.")
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.SELL, sellShares)
+	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.SELL, sellShares, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting %s amount for %s: %s", models.SELL, username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	trig, err = dbutils.QueryStockTrigger(tid)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error trigger %d not found after insert.", tid)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
+func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
 	triggerPrice, err := strconv.Atoi(vars["triggerPrice"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["triggerPrice"])
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	trig, err := dbutils.QueryUserTrigger(username, symbol, orderType)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	if err != sql.ErrNoRows && trig.Executable {
 		errMsg := fmt.Sprintf("Error a %s trigger already exists for %s and %s. Please cancel before proceeding.", orderType, username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -572,7 +578,7 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	err = dbactions.UpdateTrigger(trig)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to update %s trigger for %s and %s", orderType, username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
@@ -580,22 +586,22 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	trig, err = dbutils.QueryStockTrigger(trig.ID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to query updated %s trigger for %s and %s", orderType, username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
-	setOrderTrigger(w, r, models.BUY)
+func setBuyTrigger(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	setOrderTrigger(w, r, models.BUY, command)
 }
 
-func setSellTrigger(w http.ResponseWriter, r *http.Request) {
-	setOrderTrigger(w, r, models.SELL)
+func setSellTrigger(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	setOrderTrigger(w, r, models.SELL, command)
 }
 
-func executeTriggerTest(w http.ResponseWriter, r *http.Request) {
+func executeTriggerTest(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
@@ -603,48 +609,49 @@ func executeTriggerTest(w http.ResponseWriter, r *http.Request) {
 	rTrigs, err := dbactions.QueryAndExecuteCurrentTriggers(trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 	respondWithJSON(w, http.StatusOK, rTrigs)
 }
 
-func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
+func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
+	trans := vars["trans"]
 
 	trig, err := dbutils.QueryUserTrigger(username, symbol, orderType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Error no %s trigger exists for %s and %s.", orderType, username, symbol)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
+			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
 		}
-		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username, command, vars)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err = dbactions.CancelOrderTransaction(trig)
+	trig, err = dbactions.CancelOrderTransaction(trig, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to cancel %s trigger for %s and %s", orderType, username, symbol)
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func cancelSetBuy(w http.ResponseWriter, r *http.Request) {
-	cancelTrigger(w, r, models.BUY)
+func cancelSetBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	cancelTrigger(w, r, models.BUY, command)
 }
 
-func cancelSetSell(w http.ResponseWriter, r *http.Request) {
-	cancelTrigger(w, r, models.SELL)
+func cancelSetSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	cancelTrigger(w, r, models.SELL, command)
 }
 
-func logHandler(fn http.HandlerFunc, command logger.Command) http.HandlerFunc {
+func logHandler(fn extendedHandlerFunc, command logger.Command) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.LogCommand(command, mux.Vars(r))
 		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
@@ -656,7 +663,7 @@ func logHandler(fn http.HandlerFunc, command logger.Command) http.HandlerFunc {
 		// }
 
 		log.Println(l)
-		fn(w, r)
+		fn(w, r, command)
 	}
 }
 
