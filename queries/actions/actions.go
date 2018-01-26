@@ -132,31 +132,29 @@ func RemoveLastOrderTypeReservation(username string, orderType models.OrderType)
 
 
 func SetUserOrderTypeAmount(tx *sql.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
-	query := "INSERT INTO triggers(username, symbol, type, amount, shares, trigger_price, executable, time) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING tid"
+	query := "INSERT INTO triggers(username, symbol, type, amount, trigger_price, executable, time) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING tid"
 	t := time.Now().Unix()
 	if tx != nil {
-		err = tx.QueryRow(query, username, symbol, orderType, amount, 0, 0, false, t).Scan(&tid)
+		err = tx.QueryRow(query, username, symbol, orderType, amount, 0, false, t).Scan(&tid)
 	} else {
-		err = db.QueryRow(query, username, symbol, orderType, amount, 0, 0, false, t).Scan(&tid)
+		err = db.QueryRow(query, username, symbol, orderType, amount, 0, false, t).Scan(&tid)
 	}
 	return
 }
 
 func RemoveUserStockTrigger(tx *sql.Tx, tid int64) (trig models.Trigger, err error) {
-	query := `DELETE FROM triggers WHERE tid=$1 RETURNING tid, username, symbol, type, amount, shares, trigger_price, executable, time`
+	query := `DELETE FROM triggers WHERE tid=$1 RETURNING tid, username, symbol, type, amount, trigger_price, executable, time`
 	if tx != nil {
-		err = tx.QueryRow(query, tid).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
-						&trig.Order, &trig.Amount, &trig.Shares, &trig.TriggerPrice, &trig.Executable, &trig.Time)
+		trig, err = dbutils.ScanTrigger(tx.QueryRow(query, tid))
 	} else {
-		err = db.QueryRow(query, tid).Scan(&trig.ID, &trig.Username, &trig.Symbol, 
-						&trig.Order, &trig.Amount, &trig.Shares, &trig.TriggerPrice, &trig.Executable, &trig.Time)
+		trig, err =  dbutils.ScanTrigger(db.QueryRow(query, tid))
 	}
 	return
 }
 
 func UpdateTrigger(trig models.Trigger) (err error) {
-	query := "UPDATE Triggers SET username=$2, symbol=$3, type=$4, amount=$5, shares=$6, trigger_price=$7, executable=$8, time=$9 WHERE tid=$1"
-	_, err = db.Exec(query, trig.ID, trig.Username, trig.Symbol, trig.Order, trig.Amount, trig.Shares, trig.TriggerPrice, trig.Executable, trig.Time)
+	query := "UPDATE Triggers SET username=$2, symbol=$3, type=$4, amount=$5, trigger_price=$6, executable=$7, time=$8 WHERE tid=$1"
+	_, err = db.Exec(query, trig.ID, trig.Username, trig.Symbol, trig.Order, trig.Amount, trig.TriggerPrice, trig.Executable, trig.Time)
 	return
 }
 
@@ -218,7 +216,6 @@ func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err erro
 	if trig.Order == models.BUY {
 		err = UpdateUserMoney(tx, trig.Username, trig.Amount, models.SELL)
 	}else{
-		//TODO: check for sell
 		err = UpdateUserStock(tx, trig.Username, trig.Symbol, trig.Amount, models.BUY)
 	}
 	if err != nil {
@@ -241,22 +238,6 @@ func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err erro
 
 	return
 }
-
-// func UpdateUserStockTriggerSharesAndPrice(tx *sql.Tx, username string, stock string, shares string, triggerPrice float64) (err error) {
-
-// 	query := "UPDATE triggers SET shares=$1, trigger_price=$2 WHERE username=$3 AND symbol=$4"
-// 	if tx == nil {
-// 		_, err = db.Exec(query, shares, triggerPrice, username, stock)
-// 	} else {
-// 		_, err = tx.Exec(query, shares, triggerPrice, username, stock)
-// 	}
-
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 	}
-
-// 	return
-// }
 
 func CommitBuySellTransaction(res models.Reservation) (err error) {
 	tx, err := db.Begin()
@@ -290,80 +271,81 @@ func CommitBuySellTransaction(res models.Reservation) (err error) {
 	return
 }
 
-func SetBuyTrigger(username string, symbol string, orderType string, triggerPrice string) (err error) {
-	err = UpdateUserStockTriggerPrice(username, symbol, orderType, triggerPrice)
-	return
+func QueryAndExecuteCurrentTriggers() (rTrigs []models.Trigger, err error) {
+	query := `SELECT tid, username, symbol, type, amount, trigger_price, executable, time FROM triggers WHERE executable=TRUE`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		trig, err := dbutils.ScanTriggerRows(rows)
+		if err == nil {
+			quote, err := dbutils.QueryQuotePrice(trig.Username, trig.Symbol)
+			if err == nil {
+				if trig.Order == models.BUY {
+					if quote <= trig.TriggerPrice {
+						trig, err = ExecuteTrigger(trig, quote)
+					}
+
+				}else{
+					if quote >= trig.TriggerPrice {
+						trig, err = ExecuteTrigger(trig, quote)
+					}
+				}
+				if err == nil {
+					rTrigs = append(rTrigs, trig)
+				}
+			}
+		}	
+	}
+	return 
 }
 
-// func SetSellTrigger(username string, symbol string, totalValue float64, triggerPrice float64) (err error) {
+func ExecuteTrigger(trig models.Trigger, quote int) (rtrig models.Trigger, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
 
-// 	orderType := "sell"
-// 	shares := int(totalValue / triggerPrice)
-// 	sharesStr := strconv.Itoa(shares)
+	if trig.Order == models.BUY {
+		shares := trig.Amount / quote
+		remainder := trig.Amount - (shares * quote)
 
-// 	tx, err := db.Begin()
+		// add stock
+		err = UpdateUserStock(tx, trig.Username, trig.Symbol, shares, trig.Order)
+		if err != nil {
+			tx.Rollback()
+			return
+		}
 
-// 	err1 := UpdateUserStock(tx, username, symbol, shares, orderType, nil)
-// 	err2 := UpdateUserStockTriggerSharesAndPrice(tx, username, symbol, sharesStr, triggerPrice)
+		//add remainder back
+		err = UpdateUserMoney(tx, trig.Username, remainder, models.SELL)
+		if err != nil {
+			tx.Rollback()
+			return
+		}
 
-// 	if err != nil || err1 != nil || err2 != nil {
-// 		tx.Rollback()
-// 		err = errors.New("error querying within transaction")
-// 		utils.LogErr(err)
-// 		return
-// 	}
+	} else {
+		// add spendings
+		err = UpdateUserMoney(tx, trig.Username, trig.Amount, trig.Order)
+		if err != nil {
+			tx.Rollback()
+			return
+		}
+	}
+	rtrig, err = RemoveUserStockTrigger(tx, trig.ID)
+	if err != nil {
+		tx.Rollback()
+		return
+	}
 
-// 	err = tx.Commit()
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		tx.Rollback()
-// 		return
-// 	}
-
-// 	return
-// }
-
-// func ExecuteTrigger(username string, symbol string, shares string, totalValue float64, triggerValue float64, orderType string) (err error) {
-
-// 	var sharesInt int
-// 	isSellOrder := strings.Compare(orderType, "sell") == 0
-
-// 	if !isSellOrder {
-// 		sharesInt = int(totalValue / triggerValue)
-// 	} else {
-// 		sharesInt, _ = strconv.Atoi(shares)
-// 	}
-
-// 	tx, err := db.Begin()
-
-// 	err1 := UpdateUserStock(tx, username, symbol, sharesInt, orderType, nil)
-// 	if err1 != nil {
-// 		utils.LogErr(err)
-// 		tx.Rollback()
-// 		return
-// 	}
-
-// 	err2 := RemoveUserStockTrigger(tx, username, symbol, orderType, nil)
-// 	if err2 != nil {
-// 		utils.LogErr(err2)
-// 		tx.Rollback()
-// 		return
-// 	}
-
-// 	if isSellOrder {
-// 		err3 := UpdateUserMoney(tx, username, totalValue, orderType, nil)
-// 		if err3 != nil {
-// 			tx.Rollback()
-// 			return
-// 		}
-// 	}
-
-// 	err = tx.Commit()
-// 	if err != nil {
-// 		utils.LogErr(err)
-// 		tx.Rollback()
-// 		return
-// 	}
-
-// 	return
-// }
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+	return
+}

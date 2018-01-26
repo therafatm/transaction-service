@@ -36,7 +36,6 @@ type Trigger struct {
 	Symbol string 			`json:"symbol"`
 	Order OrderType 		`json:"type"`
 	Amount int 				`json:"amount"`
-	Shares int				`json:"shares"`
 	TriggerPrice int 	 	`json:"triggerprice"`
 	Executable bool	 		`json:"executable"`
 	Time int64 				`json:"time"`

@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-	"strings"
 	"encoding/json"
 
 	"transaction_service/queries/actions"
@@ -224,22 +223,9 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := dbutils.QueryQuote(username, symbol)
+	quote, err := dbutils.QueryQuotePrice(username, symbol)
 	if err != nil {
-		if body != nil {
-			errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
-			return
-		}
-		errMsg := "Error converting quote to string."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return
-	}
-
-	priceStr :=  strings.Replace(strings.Split(string(body), ",")[0], ".", "", 1)
-	quote, err := strconv.Atoi(priceStr)
-	if err != nil {
-		errMsg := "Error reading stock quote."
+		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
@@ -281,22 +267,9 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := dbutils.QueryQuote(username, symbol)
+	quote, err := dbutils.QueryQuotePrice(username, symbol)
 	if err != nil {
-		if body != nil {
-			errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
-			return
-		}
-		errMsg := "Error converting quote to string."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return
-	}
-
-	priceStr :=  strings.Replace(strings.Split(string(body), ",")[0], ".", "", 1)
-	quote, err := strconv.Atoi(priceStr)
-	if err != nil {
-		errMsg := "Error reading stock quote."
+		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
@@ -528,27 +501,14 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.SELL, username, symbol)
-		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.BUY, username, symbol))
+		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.SELL, username, symbol))
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return 
 	}
 
-	body, err := dbutils.QueryQuote(username, symbol)
+	quote, err := dbutils.QueryQuotePrice(username, symbol)
 	if err != nil {
-		if body != nil {
-			errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
-			respondWithError(w, http.StatusInternalServerError, err, errMsg)
-			return
-		}
-		errMsg := "Error converting quote to string."
-		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return
-	}
-
-	priceStr :=  strings.Replace(strings.Split(string(body), ",")[0], ".", "", 1)
-	quote, err := strconv.Atoi(priceStr)
-	if err != nil {
-		errMsg := "Error reading stock quote."
+		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
@@ -634,26 +594,18 @@ func setSellTrigger(w http.ResponseWriter, r *http.Request){
 }
 
 
-// func executeTrigger(w http.ResponseWriter, r *http.Request) {
-// 	vars := mux.Vars(r)
-// 	username := vars["username"]
-// 	symbol := vars["stock"]
-// 	shares := vars["shares"]
-// 	triggerValue, _ := strconv.ParseFloat(vars["triggerValue"], 64)
-// 	totalValue, _ := strconv.ParseFloat(vars["totalValue"], 64)
-// 	orderType := vars["orderType"]
+func executeTriggerTest(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
 
-// 	err := dbactions.ExecuteTrigger(username, symbol, shares, totalValue, triggerValue, orderType)
-
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	res := []byte("Sucessfully executed SET " + orderType + " trigger.")
-// 	w.Write(res)
-// 	return
-// }
+	rTrigs, err := dbactions.QueryAndExecuteCurrentTriggers()
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
+		respondWithError(w, http.StatusInternalServerError, err, errMsg)
+		return 
+	}
+	respondWithJSON(w, http.StatusOK, rTrigs)
+}
 
 func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
 	vars := mux.Vars(r)
@@ -714,7 +666,6 @@ func main() {
 	dbutils.SetUtilsDB(db)
 
 	router := mux.NewRouter()
-	// port, _ := freeport.GetFreePort()
 	port := 8888
 
 	
@@ -742,7 +693,7 @@ func main() {
 	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}", logHandler(cancelSetSell))
 	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}", logHandler(setSellTrigger))
 
-	// router.HandleFunc("/api/executeTrigger/{username}/{symbol}/{shares}/{totalValue}/{triggerValue}/{orderType}", logHandler(executeTrigger))
+	router.HandleFunc("/api/executeTriggers/{username}", logHandler(executeTriggerTest))
 
 	http.Handle("/", router)
 
