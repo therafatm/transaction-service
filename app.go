@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -9,15 +10,13 @@ import (
 	"os"
 	"strconv"
 	"time"
-	"encoding/json"
 
 	"transaction_service/queries/actions"
-	"transaction_service/queries/utils"
 	"transaction_service/queries/models"
+	"transaction_service/queries/utils"
 	//"transaction_service/triggers/triggermanager"
+	"transaction_service/logger"
 	"transaction_service/utils"
-	logger "transaction_service/logger"
-
 
 	"github.com/gorilla/mux"
 	// "github.com/phayes/freeport"
@@ -31,7 +30,7 @@ func connectToDB() *sql.DB {
 		host     = os.Getenv("POSTGRES_HOST")
 		user     = os.Getenv("POSTGRES_USER")
 		password = os.Getenv("POSTGRES_PASSWORD")
-		dbname = os.Getenv("POSTGRES_DB")
+		dbname   = os.Getenv("POSTGRES_DB")
 	)
 
 	port, err := strconv.Atoi(os.Getenv("DB_PORT"))
@@ -51,15 +50,15 @@ func connectToDB() *sql.DB {
 func respondWithError(w http.ResponseWriter, code int, err error, message string) {
 	utils.LogErr(err)
 	fmt.Println(message)
-    respondWithJSON(w, code, map[string]string{"error": err.Error(), "message": message})
+	respondWithJSON(w, code, map[string]string{"error": err.Error(), "message": message})
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
-    response, _ := json.Marshal(payload)
+	response, _ := json.Marshal(payload)
 
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(code)
-    w.Write(response)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
 }
 
 //TODO: refactor  + test
@@ -85,9 +84,8 @@ func clearUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-    w.Write([]byte("Cleared users succesfully."))
+	w.Write([]byte("Cleared users succesfully."))
 }
-
 
 func addUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -115,9 +113,9 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 	} else if err != nil {
 		// error
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 
-	}else{
+	} else {
 		// user exists
 		user.Money += money
 		_, err = dbactions.UpdateUser(user)
@@ -133,6 +131,7 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
+
 	respondWithJSON(w, http.StatusOK, user)
 }
 
@@ -145,7 +144,7 @@ func availableBalance(w http.ResponseWriter, r *http.Request) {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
-	}else if err != nil {
+	} else if err != nil {
 		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
@@ -174,7 +173,7 @@ func availableShares(w http.ResponseWriter, r *http.Request) {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
-	}else if err != nil {
+	} else if err != nil {
 		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
@@ -197,7 +196,8 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
-	
+	trans := vars["trans"]
+
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
@@ -227,14 +227,14 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(username, symbol)
+	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
 
-	reservation := models.Reservation{ Username: username, Symbol: symbol, Order: models.BUY }
+	reservation := models.Reservation{Username: username, Symbol: symbol, Order: models.BUY}
 	reservation.Shares = buyAmount / quote
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
@@ -245,7 +245,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
-	
+
 	reserv, err := dbutils.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
@@ -263,6 +263,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
+	trans := vars["trans"]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -271,7 +272,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(username, symbol)
+	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
@@ -294,7 +295,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reservation := models.Reservation{ Username: username, Symbol: symbol, Order: models.SELL }
+	reservation := models.Reservation{Username: username, Symbol: symbol, Order: models.SELL}
 	reservation.Shares = sharesToSell
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
@@ -319,17 +320,16 @@ func sellOrder(w http.ResponseWriter, r *http.Request) {
 	go dbactions.RemoveOrder(rid, 60)
 }
 
-
 func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
 	var requestParams = mux.Vars(r)
 	username := requestParams["username"]
 
 	res, err := dbutils.QueryLastReservation(username, orderType)
 	if err != nil && err == sql.ErrNoRows {
-		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType) 
+		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
-	}else if err != nil {
+	} else if err != nil {
 		errMsg := fmt.Sprintf("Error finding last %s reservation.", orderType)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
@@ -338,11 +338,11 @@ func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderT
 	var balance int
 	var amount int
 
-	if orderType == models.BUY{
+	if orderType == models.BUY {
 		balance, err = dbutils.QueryUserAvailableBalance(username)
 		amount = res.Amount
 
-	}else{
+	} else {
 		balance, err = dbutils.QueryUserAvailableShares(username, res.Symbol)
 		amount = res.Shares
 	}
@@ -409,7 +409,6 @@ func cancelSell(w http.ResponseWriter, r *http.Request) {
 	cancelOrder(w, r, models.SELL)
 }
 
-
 func cancelBuy(w http.ResponseWriter, r *http.Request) {
 	cancelOrder(w, r, models.BUY)
 }
@@ -430,13 +429,13 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 	if err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.BUY, username, symbol)
 		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.BUY, username, symbol))
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 
 	balance, err := dbutils.QueryUserAvailableBalance(username)
@@ -460,13 +459,12 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tid, err := dbactions. CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount)
+	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting buy amount for %s: %s", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
 		return
 	}
-
 
 	trig, err = dbutils.QueryStockTrigger(tid)
 	if err != nil {
@@ -482,6 +480,7 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
+	trans := vars["trans"]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -501,16 +500,16 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 	if err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.SELL, username, symbol)
 		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.SELL, username, symbol))
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(username, symbol)
+	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
@@ -543,7 +542,6 @@ func setSellAmount(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-
 func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType) {
 	vars := mux.Vars(r)
 	username := vars["username"]
@@ -559,15 +557,15 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 
 	if err != sql.ErrNoRows && trig.Executable {
 		errMsg := fmt.Sprintf("Error a %s trigger already exists for %s and %s. Please cancel before proceeding.", orderType, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
-		
+
 	trig.TriggerPrice = triggerPrice
 	trig.Executable = true
 
@@ -575,7 +573,7 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to update %s trigger for %s and %s", orderType, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 
 	//For err checking consider removing
@@ -583,30 +581,30 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to query updated %s trigger for %s and %s", orderType, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setBuyTrigger(w http.ResponseWriter, r *http.Request){
+func setBuyTrigger(w http.ResponseWriter, r *http.Request) {
 	setOrderTrigger(w, r, models.BUY)
 }
 
-func setSellTrigger(w http.ResponseWriter, r *http.Request){
+func setSellTrigger(w http.ResponseWriter, r *http.Request) {
 	setOrderTrigger(w, r, models.SELL)
 }
-
 
 func executeTriggerTest(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
+	trans := vars["trans"]
 
-	rTrigs, err := dbactions.QueryAndExecuteCurrentTriggers()
+	rTrigs, err := dbactions.QueryAndExecuteCurrentTriggers(trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 	respondWithJSON(w, http.StatusOK, rTrigs)
 }
@@ -621,11 +619,11 @@ func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.Orde
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Error no %s trigger exists for %s and %s.", orderType, username, symbol)
 			respondWithError(w, http.StatusInternalServerError, err, errMsg)
-			return 
+			return
 		}
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg)
-		return 
+		return
 	}
 
 	trig, err = dbactions.CancelOrderTransaction(trig)
@@ -646,9 +644,9 @@ func cancelSetSell(w http.ResponseWriter, r *http.Request) {
 	cancelTrigger(w, r, models.SELL)
 }
 
-
-func logHandler(fn http.HandlerFunc) http.HandlerFunc {
+func logHandler(fn http.HandlerFunc, command logger.Command) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		logger.LogCommand(command, mux.Vars(r))
 		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
 		// err := validateURLParams(r)
 		// if err != nil {
@@ -672,32 +670,30 @@ func main() {
 	router := mux.NewRouter()
 	port := 8888
 
-	
-	router.HandleFunc("/api/clearUsers", logHandler(clearUsers))
-	router.HandleFunc("/api/availableBalance/{username}/{trans}", logHandler(availableBalance))
-	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", logHandler(availableShares))
+	router.HandleFunc("/api/clearUsers", logHandler(clearUsers, ""))
+	router.HandleFunc("/api/availableBalance/{username}/{trans}", logHandler(availableBalance, ""))
+	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", logHandler(availableShares, ""))
 
+	router.HandleFunc("/api/add/{username}/{money}/{trans}", logHandler(addUser, logger.ADD))
+	router.HandleFunc("/api/getQuote/{username}/{stock}/{trans}", logHandler(getQuoute, logger.QUOTE))
 
-	router.HandleFunc("/api/add/{username}/{money}/{trans}", logHandler(addUser))
-	router.HandleFunc("/api/getQuote/{username}/{stock}/{trans}", logHandler(getQuoute))
+	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", logHandler(buyOrder, logger.BUY))
+	router.HandleFunc("/api/commitBuy/{username}/{trans}", logHandler(commitBuy, logger.COMMIT_BUY))
+	router.HandleFunc("/api/cancelBuy/{username}/{trans}", logHandler(cancelBuy, logger.CANCEL_BUY))
 
-	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", logHandler(buyOrder))
-	router.HandleFunc("/api/commitBuy/{username}/{trans}", logHandler(commitBuy))
-	router.HandleFunc("/api/cancelBuy/{username}/{trans}", logHandler(cancelBuy))
+	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", logHandler(sellOrder, logger.SELL))
+	router.HandleFunc("/api/commitSell/{username}/{trans}", logHandler(commitSell, logger.COMMIT_SELL))
+	router.HandleFunc("/api/cancelSell/{username}/{trans}", logHandler(cancelSell, logger.CANCEL_SELL))
 
-	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", logHandler(sellOrder))
-	router.HandleFunc("/api/commitSell/{username}/{trans}", logHandler(commitSell))
-	router.HandleFunc("/api/cancelSell/{username}/{trans}", logHandler(cancelSell))
+	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setBuyAmount, logger.SET_BUY_AMOUNT))
+	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setBuyTrigger, logger.SET_BUY_TRIGGER))
+	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", logHandler(cancelSetBuy, logger.CANCEL_SET_BUY))
 
-	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setBuyAmount))
-	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setBuyTrigger))
-	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", logHandler(cancelSetBuy))
+	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setSellAmount, logger.SET_SELL_AMOUNT))
+	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", logHandler(cancelSetSell, logger.CANCEL_SET_SELL))
+	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setSellTrigger, logger.SET_SELL_TRIGGER))
 
-	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setSellAmount))
-	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", logHandler(cancelSetSell))
-	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setSellTrigger))
-
-	router.HandleFunc("/api/executeTriggers/{username}", logHandler(executeTriggerTest))
+	router.HandleFunc("/api/executeTriggers/{username}/{trans}", logHandler(executeTriggerTest, ""))
 
 	http.Handle("/", router)
 

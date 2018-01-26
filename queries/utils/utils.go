@@ -41,14 +41,11 @@ func GetQuoteServerURL() string {
 	return string(url)
 }
 
-func QueryQuote(username string, stock string) ([]byte, error) {
-
-	var body = make([]byte, 1024)
-	var err error
-
-	env := strings.Compare(os.Getenv("ENV"), "prod") == 0
-
-	if env == true {
+//TODO: FIX
+func QueryQuote(username string, stock string) (body []byte, err error) {
+	//env := strings.Compare(os.Getenv("ENV"), "prod") == 0
+	if false {
+		body = make([]byte, 1024)
 		ip := "192.168.1.152"
 		port := "4445"
 		addr := strings.Join([]string{ip, port}, ":")
@@ -63,21 +60,20 @@ func QueryQuote(username string, stock string) ([]byte, error) {
 
 		_, err = conn.Read(body)
 		log.Println(string(body))
-	} else {
-		URL := GetQuoteServerURL()
-		res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock + "/0")
-		if err != nil {
-			utils.LogErr(err)
-		} else {
-			body, err = ioutil.ReadAll(res.Body)
-			log.Println(string(body))
-		}
 	}
 
-	return body, err
+	URL := GetQuoteServerURL()
+	res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
+	if err != nil {
+		utils.LogErr(err)
+	} else {
+		body, err = ioutil.ReadAll(res.Body)
+		log.Println(string(body))
+	}
+	return
 }
 
-func QueryQuotePrice(username string, symbol string) (quote int, err error) {
+func QueryQuotePrice(username string, symbol string, trans string) (quote int, err error) {
 	body, err := QueryQuote(username, symbol)
 	if err != nil {
 		return
@@ -91,7 +87,7 @@ func QueryQuotePrice(username string, symbol string) (quote int, err error) {
 		return
 	}
 
-	logger.LogQuoteServ(username, split[0], split[1], split[2], split[3])
+	logger.LogQuoteServ(username, split[0], split[1], split[2], split[3], trans)
 	return
 }
 

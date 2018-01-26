@@ -5,11 +5,11 @@ import (
 	"log"
 	//"strconv"
 	//"strings"
-	"time"
 	"fmt"
+	"time"
 
-	"transaction_service/queries/utils"
 	"transaction_service/queries/models"
+	"transaction_service/queries/utils"
 	"transaction_service/utils"
 )
 
@@ -130,7 +130,6 @@ func RemoveLastOrderTypeReservation(username string, orderType models.OrderType)
 	return
 }
 
-
 func SetUserOrderTypeAmount(tx *sql.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
 	query := "INSERT INTO triggers(username, symbol, type, amount, trigger_price, executable, time) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING tid"
 	t := time.Now().Unix()
@@ -147,7 +146,7 @@ func RemoveUserStockTrigger(tx *sql.Tx, tid int64) (trig models.Trigger, err err
 	if tx != nil {
 		trig, err = dbutils.ScanTrigger(tx.QueryRow(query, tid))
 	} else {
-		trig, err =  dbutils.ScanTrigger(db.QueryRow(query, tid))
+		trig, err = dbutils.ScanTrigger(db.QueryRow(query, tid))
 	}
 	return
 }
@@ -179,7 +178,7 @@ func CommitSetOrderTransaction(username string, symbol string, orderType models.
 
 	if orderType == models.BUY {
 		err = UpdateUserMoney(tx, username, amount, orderType)
-	}else{
+	} else {
 		//TODO: check for sell
 		err = UpdateUserStock(tx, username, symbol, amount, orderType)
 	}
@@ -205,7 +204,6 @@ func CommitSetOrderTransaction(username string, symbol string, orderType models.
 	return
 }
 
-
 func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err error) {
 	tx, err := db.Begin()
 	if err != nil {
@@ -215,7 +213,7 @@ func CancelOrderTransaction(trig models.Trigger) (rtrig models.Trigger, err erro
 
 	if trig.Order == models.BUY {
 		err = UpdateUserMoney(tx, trig.Username, trig.Amount, models.SELL)
-	}else{
+	} else {
 		err = UpdateUserStock(tx, trig.Username, trig.Symbol, trig.Amount, models.BUY)
 	}
 	if err != nil {
@@ -271,7 +269,7 @@ func CommitBuySellTransaction(res models.Reservation) (err error) {
 	return
 }
 
-func QueryAndExecuteCurrentTriggers() (rTrigs []models.Trigger, err error) {
+func QueryAndExecuteCurrentTriggers(trans string) (rTrigs []models.Trigger, err error) {
 	query := `SELECT tid, username, symbol, type, amount, trigger_price, executable, time FROM triggers WHERE executable=TRUE`
 
 	rows, err := db.Query(query)
@@ -283,14 +281,14 @@ func QueryAndExecuteCurrentTriggers() (rTrigs []models.Trigger, err error) {
 	for rows.Next() {
 		trig, err := dbutils.ScanTriggerRows(rows)
 		if err == nil {
-			quote, err := dbutils.QueryQuotePrice(trig.Username, trig.Symbol)
+			quote, err := dbutils.QueryQuotePrice(trig.Username, trig.Symbol, trans)
 			if err == nil {
 				if trig.Order == models.BUY {
 					if quote <= trig.TriggerPrice {
 						trig, err = ExecuteTrigger(trig, quote)
 					}
 
-				}else{
+				} else {
 					if quote >= trig.TriggerPrice {
 						trig, err = ExecuteTrigger(trig, quote)
 					}
@@ -299,9 +297,9 @@ func QueryAndExecuteCurrentTriggers() (rTrigs []models.Trigger, err error) {
 					rTrigs = append(rTrigs, trig)
 				}
 			}
-		}	
+		}
 	}
-	return 
+	return
 }
 
 func ExecuteTrigger(trig models.Trigger, quote int) (rtrig models.Trigger, err error) {
