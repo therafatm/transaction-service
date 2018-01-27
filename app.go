@@ -651,6 +651,15 @@ func cancelSetSell(w http.ResponseWriter, r *http.Request, command logger.Comman
 	cancelTrigger(w, r, models.SELL, command)
 }
 
+func dumplog(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	return
+}
+
+func displaySummary(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	return
+}
+
+
 func logHandler(fn extendedHandlerFunc, command logger.Command) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.LogCommand(command, mux.Vars(r))
@@ -699,6 +708,9 @@ func main() {
 	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setSellAmount, logger.SET_SELL_AMOUNT))
 	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", logHandler(cancelSetSell, logger.CANCEL_SET_SELL))
 	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setSellTrigger, logger.SET_SELL_TRIGGER))
+
+	router.HandleFunc("/api/dumplog/{filename}/{trans}", logHandler(dumplog, logger.DUMPLOG))
+	router.HandleFunc("/api/displaySummary/{username}/{trans}", logHandler(displaySummary, logger.DISPLAY_SUMMARY))
 
 	router.HandleFunc("/api/executeTriggers/{username}/{trans}", logHandler(executeTriggerTest, ""))
 

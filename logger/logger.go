@@ -1,9 +1,3 @@
-// Copyright 2012 The Go Authors. All rights reserved.
-
-// Use of this source code is governed by a BSD-style
-
-// license that can be found in the LICENSE file.
-
 package logger
 
 import (
@@ -67,6 +61,7 @@ type LogType struct {
 }
 
 type UserCommandType struct {
+	XMLName           string  `xml:"userCommand"`
 	Timestamp         string  `xml:"timestamp"`
 	Server            string  `xml:"server"`
 	TransactionNumber string  `xml:"transactionNum"`
@@ -78,6 +73,7 @@ type UserCommandType struct {
 }
 
 type AccountTransactionType struct {
+	XMLName           string `xml:"accountTransaction"`
 	Timestamp         string `xml:"timestamp"`
 	Server            string `xml:"server"`
 	TransactionNumber string `xml:"transactionNum"`
@@ -87,6 +83,7 @@ type AccountTransactionType struct {
 }
 
 type SystemEventType struct {
+	XMLName           string `xml:"systemEvent"`
 	Timestamp         string `xml:"timestamp"`
 	Server            string `xml:"server"`
 	TransactionNumber string `xml:"transactionNum"`
@@ -97,6 +94,7 @@ type SystemEventType struct {
 }
 
 type QuoteServerType struct {
+	XMLName           string `xml:"quoteServer"`
 	Timestamp         string `xml:"timestamp"`
 	Server            string `xml:"server"`
 	TransactionNumber string `xml:"transactionNum"`
@@ -108,6 +106,7 @@ type QuoteServerType struct {
 }
 
 type ErrorEventType struct {
+	XMLName           string  `xml:"errorEvent"`
 	Timestamp         string  `xml:"timestamp"`
 	Server            string  `xml:"server"`
 	TransactionNumber string  `xml:"transactionNum"`
@@ -161,7 +160,9 @@ func validateSchema(ele []byte) {
 	}
 	defer s.Free()
 
-	d, err := libxml2.Parse(ele)
+	wrapper := []byte(fmt.Sprintf("<log>%s</log>", ele))
+
+	d, err := libxml2.Parse(wrapper)
 	if err != nil {
 		fmt.Printf("failed to parse XML: %s", err)
 		return
@@ -204,13 +205,12 @@ func LogCommand(command Command, vars map[string]string) {
 			v.Funds = formatStrAmount(val)
 		}
 
-		logEntry := LogType{UserCommand: &v}
-
-		output, err := xml.MarshalIndent(logEntry, prefix, indent)
+		output, err := xml.MarshalIndent(v, prefix, indent)
 		if err != nil {
 			panic(err)
 		}
 		file.Write(output)
+		file.Write([]byte("\n"))
 		validateSchema(output)
 	}
 }
@@ -233,14 +233,13 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 		CryptoKey:         cryptokey,
 		TransactionNumber: trans}
 
-	logEntry := LogType{QuoteServer: &v}
-
-	output, err := xml.MarshalIndent(logEntry, prefix, indent)
+	output, err := xml.MarshalIndent(v, prefix, indent)
 	if err != nil {
 		panic(err)
 	}
 
 	file.Write(output)
+	file.Write([]byte("\n"))
 	validateSchema(output)
 }
 
@@ -260,13 +259,12 @@ func LogTransaction(action string, username string, amount int, trans string) {
 		Action:            action,
 		Funds:             formatAmount(amount)}
 
-	logEntry := LogType{AccountTransaction: &v}
-
-	output, err := xml.MarshalIndent(logEntry, prefix, indent)
+	output, err := xml.MarshalIndent(v, prefix, indent)
 	if err != nil {
 		panic(err)
 	}
 	file.Write(output)
+	file.Write([]byte("\n"))
 	validateSchema(output)
 }
 
@@ -317,13 +315,13 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 		v.Funds = formatStrAmount(val)
 	}
 
-	logEntry := LogType{ErrorEvent: &v}
-	output, err := xml.MarshalIndent(logEntry, prefix, indent)
+	output, err := xml.MarshalIndent(v, prefix, indent)
 	if err != nil {
 		panic(err)
 	}
 
 	file.Write(output)
+	file.Write([]byte("\n"))
 	validateSchema(output)
 }
 

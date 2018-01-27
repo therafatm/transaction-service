@@ -3,19 +3,18 @@ package dbutils
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"io/ioutil"
 
 	//"transaction_service/utils"
 	logger "transaction_service/logger"
 	"transaction_service/queries/models"
-	"transaction_service/utils"
+	//"transaction_service/utils"
 )
 
 var db *sql.DB
@@ -41,36 +40,24 @@ func GetQuoteServerURL() string {
 	return string(url)
 }
 
-//TODO: FIX
-func QueryQuote(username string, stock string) (body []byte, err error) {
-	//env := strings.Compare(os.Getenv("ENV"), "prod") == 0
-	if false {
-		body = make([]byte, 1024)
-		ip := "192.168.1.152"
-		port := "4445"
-		addr := strings.Join([]string{ip, port}, ":")
-		conn, err := net.DialTimeout("tcp", addr, time.Second*10)
-		if err != nil {
-			return body, err
-		}
-		defer conn.Close()
-
-		msg := stock + "," + username + "\n"
-		conn.Write([]byte(msg))
-
-		_, err = conn.Read(body)
-		log.Println(string(body))
-	}
-
-	URL := GetQuoteServerURL()
-	res, err := http.Get(URL + "/api/getQuote/" + username + "/" + stock)
+func QueryQuote(username string, stock string) (queryString string, err error) {
+	ip := "192.168.1.152"
+	port := "4445"
+	addr := strings.Join([]string{ip, port}, ":")
+	conn, err := net.DialTimeout("tcp", addr, time.Second*10)
 	if err != nil {
-		utils.LogErr(err)
-	} else {
-		body, err = ioutil.ReadAll(res.Body)
-		log.Println(string(body))
+		return queryString, err
 	}
-	return
+	defer conn.Close()
+
+	msg := stock + "," + username + "\n"
+	conn.Write([]byte(msg))
+
+	buff, err := ioutil.ReadAll(conn)
+	
+	queryString = strings.TrimSpace(string(buff))
+	log.Println(queryString)
+	return 
 }
 
 func QueryQuotePrice(username string, symbol string, trans string) (quote int, err error) {
@@ -79,7 +66,7 @@ func QueryQuotePrice(username string, symbol string, trans string) (quote int, e
 		return
 	}
 
-	split := strings.Split(string(body), ",")
+	split := strings.Split(body, ",")
 
 	priceStr := strings.Replace(split[0], ".", "", 1)
 	quote, err = strconv.Atoi(priceStr)
@@ -87,7 +74,7 @@ func QueryQuotePrice(username string, symbol string, trans string) (quote int, e
 		return
 	}
 
-	logger.LogQuoteServ(username, split[0], split[1], split[2], split[3], trans)
+	logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
 	return
 }
 
