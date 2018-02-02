@@ -33,7 +33,7 @@ func connectToDB() *sql.DB {
 		user     = os.Getenv("POSTGRES_USER")
 		password = os.Getenv("POSTGRES_PASSWORD")
 		dbname   = os.Getenv("POSTGRES_DB")
-		port     = os.Getenv("DB_PORT")
+		port     = os.Getenv("POSTGRES_PORT")
 	)
 
 	config := fmt.Sprintf("host=%s port=%s user=%s "+
@@ -43,11 +43,7 @@ func connectToDB() *sql.DB {
 	db, err := sql.Open("postgres", config)
 	if err != nil {
 		utils.LogErr(err, "Error connecting to DB.")
-	}
-
-	err = logger.InitLogger()
-	if err != nil {
-		utils.LogErr(err, "Error opening logfile.")
+		panic(err)
 	}
 
 	return db
@@ -683,8 +679,10 @@ func main() {
 	dbactions.SetActionsDB(db)
 	dbutils.SetUtilsDB(db)
 
+	logger.InitLogger()
+
 	router := mux.NewRouter()
-	port := 8888
+	port := os.Getenv("TRANS_PORT")
 
 	router.HandleFunc("/api/clearUsers", logHandler(clearUsers, ""))
 	router.HandleFunc("/api/availableBalance/{username}/{trans}", logHandler(availableBalance, ""))
@@ -718,10 +716,11 @@ func main() {
 
 	// go triggermanager.Manage()
 
-	if err := http.ListenAndServe(":"+strconv.Itoa(port), nil); err != nil {
+	log.Println("Running transaction server on port: " + port)
+
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 		panic(err)
 	}
 
-	log.Println("Running transaction server on port: " + strconv.Itoa(port))
 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/lestrrat/go-libxml2"
 	"github.com/lestrrat/go-libxml2/xsd"
-	//"github.com/streadway/amqp"
+	"github.com/streadway/amqp"
 	"transaction_service/utils"
 )
 
@@ -125,6 +125,73 @@ const schemaFile = "logger/schema.xsd"
 const prefix = ""
 const indent = "\t"
 
+var globalLog Logger
+
+type Logger struct {
+	Conn    *amqp.Connection
+	Channel *amqp.Channel
+	Queue   amqp.Queue
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		utils.LogErr(err, msg)
+		panic(err)
+	}
+}
+
+func InitLogger() (err error) {
+	rabbitUser := os.Getenv("RABBITMQ_DEFAULT_USER")
+	rabbitPass := os.Getenv("RABBITMQ_DEFAULT_PASS")
+	rabbitHost := os.Getenv("RABBITMQ_HOST")
+	rabbitPort := os.Getenv("RABBITMQ_PORT")
+	url := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
+
+	globalLog = Logger{}
+
+	globalLog.Conn, err = amqp.Dial(url)
+	failOnError(err, fmt.Sprintf("Failed to connect to Rabbit %s", url))
+
+	globalLog.Channel, err = globalLog.Conn.Channel()
+	failOnError(err, "Failed to open a channel")
+
+	globalLog.Queue, err = globalLog.Channel.QueueDeclare(
+		"log", // name
+		false, // durable
+		false, // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	return
+}
+
+func Close() {
+	if globalLog.Conn != nil {
+		globalLog.Conn.Close()
+	}
+	if globalLog.Channel != nil {
+		globalLog.Channel.Close()
+	}
+}
+
+func publishXMLEntry(entry []byte) {
+	err := globalLog.Channel.Publish(
+		"",                   // exchange
+		globalLog.Queue.Name, // routing key
+		false,                // mandatory
+		false,                // immediate
+		amqp.Publishing{
+			ContentType: "text/xml",
+			Body:        entry,
+		})
+	if err != nil {
+		utils.LogErr(err, "Failed to publish log message.")
+	}
+}
+
 func formatStrAmount(amount string) (str string, err error) {
 	b, err := strconv.Atoi(amount)
 	if err != nil {
@@ -186,13 +253,6 @@ func validateSchema(ele []byte) {
 
 func LogCommand(command Command, vars map[string]string) {
 	if _, exist := validCommands[command]; exist {
-		file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
-		if err != nil {
-			utils.LogErr(err, "failed to log command.")
-			return
-		}
-		defer file.Close()
-
 		timestamp := getUnixTimestamp()
 		v := UserCommandType{Timestamp: timestamp, Server: server, Command: command}
 
@@ -209,6 +269,7 @@ func LogCommand(command Command, vars map[string]string) {
 			v.Filename = val
 		}
 		if val, exist := vars["amount"]; exist {
+			var err error
 			v.Funds, err = formatStrAmount(val)
 			if err != nil {
 				utils.LogErr(err, "Failed to format amount")
@@ -221,20 +282,12 @@ func LogCommand(command Command, vars map[string]string) {
 			utils.LogErr(err, "failed to marshal log command.")
 			return
 		}
-		file.Write(output)
-		file.Write([]byte("\n"))
+		publishXMLEntry(output)
 		validateSchema(output)
 	}
 }
 
 func LogQuoteServ(username string, price string, stocksymbol string, quoteTimestamp string, cryptokey string, trans string) {
-	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		utils.LogErr(err, "failed to log quote server request.")
-		return
-	}
-	defer file.Close()
-
 	timestamp := getUnixTimestamp()
 
 	v := QuoteServerType{Timestamp: timestamp,
@@ -252,8 +305,7 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 		return
 	}
 
-	file.Write(output)
-	file.Write([]byte("\n"))
+	publishXMLEntry(output)
 	validateSchema(output)
 }
 
@@ -280,8 +332,7 @@ func LogTransaction(action string, username string, amount int, trans string) {
 		utils.LogErr(err, "failed to marshal transaction.")
 		return
 	}
-	file.Write(output)
-	file.Write([]byte("\n"))
+	publishXMLEntry(output)
 	validateSchema(output)
 }
 
@@ -307,13 +358,6 @@ func LogTransaction(action string, username string, amount int, trans string) {
 // }
 
 func LogErrorEvent(command Command, vars map[string]string, emessage string) {
-	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		utils.LogErr(err, "failed to log error event.")
-		return
-	}
-	defer file.Close()
-
 	timestamp := getUnixTimestamp()
 	v := ErrorEventType{
 		Timestamp:    timestamp,
@@ -331,6 +375,7 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 		v.Symbol = val
 	}
 	if val, exist := vars["amount"]; exist {
+		var err error
 		v.Funds, err = formatStrAmount(val)
 		if err != nil {
 			utils.LogErr(err, "Failed to format amount")
@@ -344,12 +389,6 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 		return
 	}
 
-	file.Write(output)
-	file.Write([]byte("\n"))
+	publishXMLEntry(output)
 	validateSchema(output)
-}
-
-func InitLogger() (err error) {
-	_, err = os.Create(logfile)
-	return
 }
