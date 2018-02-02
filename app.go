@@ -41,11 +41,13 @@ func connectToDB() *sql.DB {
 		host, port, user, password, dbname)
 
 	db, err := sql.Open("postgres", config)
-	utils.CheckErr(err)
+	if err != nil {
+		utils.LogErr(err, "Error connecting to DB.")
+	}
 
 	err = logger.InitLogger()
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "Error opening logfile.")
 	}
 
 	return db
@@ -53,8 +55,7 @@ func connectToDB() *sql.DB {
 
 func respondWithError(w http.ResponseWriter, code int, err error, message string, command logger.Command, vars map[string]string) {
 	logger.LogErrorEvent(command, vars, message)
-	utils.LogErr(err)
-	fmt.Println(message)
+	utils.LogErrSkip(err, message, 2) // skip 2 stack frames to get actual caller
 	respondWithJSON(w, code, map[string]string{"error": err.Error(), "message": message})
 }
 

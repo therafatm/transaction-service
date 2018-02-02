@@ -5,14 +5,12 @@ import (
 	"runtime"
 )
 
-func CheckErr(err error) {
-	if err != nil {
-		LogErr(err)
-		log.Fatal(err)
-	}
+func LogErr(err error, msg string) {
+	_, fn, line, _ := runtime.Caller(1)
+	log.Printf("Error %s:%d %v: %s", fn, line, err, msg)
 }
 
-func LogErr(err error) {
-	_, fn, line, _ := runtime.Caller(1)
-	log.Printf("[error] %s:%d %v", fn, line, err)
+func LogErrSkip(err error, msg string, skip int) {
+	_, fn, line, _ := runtime.Caller(skip)
+	log.Printf("Error %s:%d %v: %s", fn, line, err, msg)
 }

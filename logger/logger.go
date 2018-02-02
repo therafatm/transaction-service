@@ -10,6 +10,8 @@ import (
 
 	"github.com/lestrrat/go-libxml2"
 	"github.com/lestrrat/go-libxml2/xsd"
+	//"github.com/streadway/amqp"
+	"transaction_service/utils"
 )
 
 type Command string
@@ -118,17 +120,18 @@ type ErrorEventType struct {
 }
 
 const server = "transaction"
-const logfile = "log.xsd"
+const logfile = "log.xml"
 const schemaFile = "logger/schema.xsd"
 const prefix = ""
 const indent = "\t"
 
-func formatStrAmount(amount string) string {
+func formatStrAmount(amount string) (str string, err error) {
 	b, err := strconv.Atoi(amount)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	return fmt.Sprintf("%d.%d", b/100, b%100)
+	str = fmt.Sprintf("%d.%d", b/100, b%100)
+	return
 }
 
 func formatAmount(amount int) string {
@@ -142,20 +145,20 @@ func getUnixTimestamp() string {
 func validateSchema(ele []byte) {
 	schema, err := os.Open(schemaFile)
 	if err != nil {
-		fmt.Printf("failed to open file: %s", err)
+		utils.LogErr(err, "failed to open file")
 		return
 	}
 	defer schema.Close()
 
 	schemabuf, err := ioutil.ReadAll(schema)
 	if err != nil {
-		fmt.Printf("failed to read file: %s", err)
+		utils.LogErr(err, "failed to read file")
 		return
 	}
 
 	s, err := xsd.Parse(schemabuf)
 	if err != nil {
-		fmt.Printf("failed to parse XSD: %s", err)
+		utils.LogErr(err, "failed to parse XSD")
 		return
 	}
 	defer s.Free()
@@ -164,25 +167,29 @@ func validateSchema(ele []byte) {
 
 	d, err := libxml2.Parse(wrapper)
 	if err != nil {
-		fmt.Printf("failed to parse XML: %s", err)
+		utils.LogErr(err, "failed to parse XML")
 		return
 	}
 
 	if err := s.Validate(d); err != nil {
-		for _, e := range err.(xsd.SchemaValidationError).Errors() {
-			fmt.Printf("error: %s", e.Error())
+		for _, err := range err.(xsd.SchemaValidationError).Errors() {
+			if err != nil {
+				utils.LogErr(err, "failed to validate XML.")
+				return
+			}
 		}
-		return
 	}
-
-	fmt.Printf("xml validation successful!")
+	if err != nil {
+		utils.LogErr(err, "failed to validate XML.")
+	}
 }
 
 func LogCommand(command Command, vars map[string]string) {
 	if _, exist := validCommands[command]; exist {
 		file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
-			panic(err)
+			utils.LogErr(err, "failed to log command.")
+			return
 		}
 		defer file.Close()
 
@@ -202,12 +209,17 @@ func LogCommand(command Command, vars map[string]string) {
 			v.Filename = val
 		}
 		if val, exist := vars["amount"]; exist {
-			v.Funds = formatStrAmount(val)
+			v.Funds, err = formatStrAmount(val)
+			if err != nil {
+				utils.LogErr(err, "Failed to format amount")
+				return
+			}
 		}
 
 		output, err := xml.MarshalIndent(v, prefix, indent)
 		if err != nil {
-			panic(err)
+			utils.LogErr(err, "failed to marshal log command.")
+			return
 		}
 		file.Write(output)
 		file.Write([]byte("\n"))
@@ -218,7 +230,8 @@ func LogCommand(command Command, vars map[string]string) {
 func LogQuoteServ(username string, price string, stocksymbol string, quoteTimestamp string, cryptokey string, trans string) {
 	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "failed to log quote server request.")
+		return
 	}
 	defer file.Close()
 
@@ -235,7 +248,8 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 
 	output, err := xml.MarshalIndent(v, prefix, indent)
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "failed to marshal quote server request.")
+		return
 	}
 
 	file.Write(output)
@@ -246,7 +260,8 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 func LogTransaction(action string, username string, amount int, trans string) {
 	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "failed to log transaction.")
+		return
 	}
 	defer file.Close()
 
@@ -257,11 +272,13 @@ func LogTransaction(action string, username string, amount int, trans string) {
 		TransactionNumber: trans,
 		Username:          username,
 		Action:            action,
-		Funds:             formatAmount(amount)}
+		Funds:             formatAmount(amount),
+	}
 
 	output, err := xml.MarshalIndent(v, prefix, indent)
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "failed to marshal transaction.")
+		return
 	}
 	file.Write(output)
 	file.Write([]byte("\n"))
@@ -292,8 +309,10 @@ func LogTransaction(action string, username string, amount int, trans string) {
 func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "failed to log error event.")
+		return
 	}
+	defer file.Close()
 
 	timestamp := getUnixTimestamp()
 	v := ErrorEventType{
@@ -312,12 +331,17 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 		v.Symbol = val
 	}
 	if val, exist := vars["amount"]; exist {
-		v.Funds = formatStrAmount(val)
+		v.Funds, err = formatStrAmount(val)
+		if err != nil {
+			utils.LogErr(err, "Failed to format amount")
+			return
+		}
 	}
 
 	output, err := xml.MarshalIndent(v, prefix, indent)
 	if err != nil {
-		panic(err)
+		utils.LogErr(err, "failed to marshal error event.")
+		return
 	}
 
 	file.Write(output)
@@ -327,9 +351,5 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 
 func InitLogger() (err error) {
 	_, err = os.Create(logfile)
-
-	if err != nil {
-		return
-	}
 	return
 }

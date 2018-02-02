@@ -11,7 +11,6 @@ import (
 	"transaction_service/logger"
 	"transaction_service/queries/models"
 	"transaction_service/queries/utils"
-	"transaction_service/utils"
 )
 
 var db *sql.DB
@@ -23,9 +22,6 @@ func SetActionsDB(database *sql.DB) {
 func ClearUsers() (err error) {
 	query := "DELETE FROM Users"
 	_, err = db.Exec(query)
-	if err != nil {
-		utils.LogErr(err)
-	}
 	return
 }
 
@@ -33,9 +29,6 @@ func InsertUser(user models.User) (res sql.Result, err error) {
 	//add new user
 	query := "INSERT INTO users(username, money) VALUES($1,$2)"
 	res, err = db.Exec(query, user.Username, user.Money)
-	if err != nil {
-		utils.LogErr(err)
-	}
 	return
 }
 
@@ -43,9 +36,6 @@ func UpdateUser(user models.User) (res sql.Result, err error) {
 	query := "UPDATE users SET money = $1 WHERE username = $2"
 	money := fmt.Sprintf("%d", user.Money)
 	res, err = db.Exec(query, money, user.Username)
-	if err != nil {
-		utils.LogErr(err)
-	}
 	return
 }
 
@@ -162,14 +152,8 @@ func UpdateTrigger(trig models.Trigger) (err error) {
 }
 
 func UpdateUserStockTriggerPrice(username string, stock string, orderType string, triggerPrice string) (err error) {
-
 	query := "UPDATE triggers SET trigger_price=$1 WHERE username=$2 AND symbol=$3 AND type=$4"
 	_, err = db.Exec(query, triggerPrice, username, stock, orderType)
-
-	if err != nil {
-		utils.LogErr(err)
-	}
-
 	return
 }
 
@@ -200,7 +184,6 @@ func CommitSetOrderTransaction(username string, symbol string, orderType models.
 
 	err = tx.Commit()
 	if err != nil {
-		utils.LogErr(err)
 		tx.Rollback()
 		return
 	}
@@ -233,7 +216,6 @@ func CancelOrderTransaction(trig models.Trigger, trans string) (rtrig models.Tri
 
 	err = tx.Commit()
 	if err != nil {
-		utils.LogErr(err)
 		tx.Rollback()
 		return
 	}
