@@ -33,11 +33,10 @@ func connectToDB() *sql.DB {
 		user     = os.Getenv("POSTGRES_USER")
 		password = os.Getenv("POSTGRES_PASSWORD")
 		dbname   = os.Getenv("POSTGRES_DB")
+		port     = os.Getenv("DB_PORT")
 	)
 
-	port, err := strconv.Atoi(os.Getenv("DB_PORT"))
-
-	config := fmt.Sprintf("host=%s port=%d user=%s "+
+	config := fmt.Sprintf("host=%s port=%s user=%s "+
 		"password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
 
@@ -67,15 +66,13 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 //TODO: refactor  + test
 func getQuoute(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
-	body, err := dbutils.QueryQuote(vars["username"], vars["stock"])
-
+	price, err := dbutils.QueryQuotePrice(vars["username"], vars["symbol"], vars["trans"])
 	if err != nil {
-		w.Write([]byte("Error getting quote.\n"))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errMsg := fmt.Sprintf("Error getting quote for %s and %s", vars["username"], vars["symbol"])
+		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-
-	w.Write([]byte(body))
+	respondWithJSON(w, http.StatusOK, map[string]string{"price": string(price), "symbol": vars["symbol"]})
 }
 
 //TODO: refactor
@@ -659,7 +656,6 @@ func displaySummary(w http.ResponseWriter, r *http.Request, command logger.Comma
 	return
 }
 
-
 func logHandler(fn extendedHandlerFunc, command logger.Command) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.LogCommand(command, mux.Vars(r))
@@ -691,7 +687,7 @@ func main() {
 	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", logHandler(availableShares, ""))
 
 	router.HandleFunc("/api/add/{username}/{money}/{trans}", logHandler(addUser, logger.ADD))
-	router.HandleFunc("/api/getQuote/{username}/{stock}/{trans}", logHandler(getQuoute, logger.QUOTE))
+	router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", logHandler(getQuoute, logger.QUOTE))
 
 	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", logHandler(buyOrder, logger.BUY))
 	router.HandleFunc("/api/commitBuy/{username}/{trans}", logHandler(commitBuy, logger.COMMIT_BUY))

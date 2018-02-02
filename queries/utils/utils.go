@@ -3,18 +3,17 @@ package dbutils
 import (
 	"database/sql"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-	"io/ioutil"
 
-	//"transaction_service/utils"
-	logger "transaction_service/logger"
+	"transaction_service/logger"
 	"transaction_service/queries/models"
-	//"transaction_service/utils"
 )
 
 var db *sql.DB
@@ -33,17 +32,27 @@ func ScanTriggerRows(rows *sql.Rows) (trig models.Trigger, err error) {
 	return
 }
 
-func GetQuoteServerURL() string {
+func QueryQuoteHTTP(username string, stock string) (queryString string, err error) {
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	url := fmt.Sprintf("http://%s:%s", host, port)
-	return string(url)
+	res, err := http.Get(url + "/api/getQuote/" + username + "/" + stock)
+	if err != nil {
+		return
+	}
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return
+	}
+	queryString = string(body)
+	log.Println(queryString)
+	return
 }
 
-func QueryQuote(username string, stock string) (queryString string, err error) {
-	ip := "192.168.1.152"
-	port := "4445"
-	addr := strings.Join([]string{ip, port}, ":")
+func QueryQuoteTCP(username string, stock string) (queryString string, err error) {
+	port := os.Getenv("QUOTE_SERVER_PORT")
+	host := os.Getenv("QUOTE_SERVER_HOST")
+	addr := strings.Join([]string{host, port}, ":")
 	conn, err := net.DialTimeout("tcp", addr, time.Second*10)
 	if err != nil {
 		return queryString, err
@@ -54,20 +63,26 @@ func QueryQuote(username string, stock string) (queryString string, err error) {
 	conn.Write([]byte(msg))
 
 	buff, err := ioutil.ReadAll(conn)
-	
+
 	queryString = strings.TrimSpace(string(buff))
 	log.Println(queryString)
-	return 
+	return
 }
 
 func QueryQuotePrice(username string, symbol string, trans string) (quote int, err error) {
-	body, err := QueryQuote(username, symbol)
+	var body string
+	_, exist := os.LookupEnv("PROD")
+	if exist {
+		body, err = QueryQuoteTCP(username, symbol)
+	} else {
+		body, err = QueryQuoteHTTP(username, symbol)
+		fmt.Printf(body)
+	}
 	if err != nil {
 		return
 	}
 
 	split := strings.Split(body, ",")
-
 	priceStr := strings.Replace(split[0], ".", "", 1)
 	quote, err = strconv.Atoi(priceStr)
 	if err != nil {
