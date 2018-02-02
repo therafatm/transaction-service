@@ -325,11 +325,11 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 	validateSchema(output)
 }
 
-func InitLogger() {
-	_, err := os.Create(logfile)
+func InitLogger() (err error) {
+	_, err = os.Create(logfile)
 
 	if err != nil {
 		return
 	}
-
+	return
 }

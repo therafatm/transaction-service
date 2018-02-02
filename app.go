@@ -43,7 +43,10 @@ func connectToDB() *sql.DB {
 	db, err := sql.Open("postgres", config)
 	utils.CheckErr(err)
 
-	logger.InitLogger()
+	err = logger.InitLogger()
+	if err != nil {
+		panic(err)
+	}
 
 	return db
 }
