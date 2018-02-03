@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"transaction_service/logger"
+	//"transaction_service/logger"
 	"transaction_service/queries/models"
 	"transaction_service/queries/utils"
 )
@@ -44,7 +44,7 @@ type TransactionDB struct {
 	*sql.DB
 }
 
-func ConnectTransactionDB(config string) (tdb TransactionDB, err error) {
+func NewTransactionDBConnection(config string) (tdb TransactionDB, err error) {
 	db, err := sql.Open("postgres", config)
 	if err != nil {
 		return
@@ -172,11 +172,11 @@ func (db *TransactionDB) UpdateUserMoney(tx *sql.Tx, username string, money int,
 
 	if order == models.BUY {
 		user.Money -= money
-		logger.LogTransaction("remove", username, money, trans)
+		//logger.LogTransaction("remove", username, money, trans)
 
 	} else {
 		user.Money += money
-		logger.LogTransaction("add", username, money, trans)
+		//logger.LogTransaction("add", username, money, trans)
 	}
 
 	query := "UPDATE users SET money=$1 WHERE username=$2"

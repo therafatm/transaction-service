@@ -1,4 +1,4 @@
-package logger
+package logging
 
 import (
 	"encoding/xml"
@@ -125,12 +125,17 @@ const schemaFile = "logger/schema.xsd"
 const prefix = ""
 const indent = "\t"
 
-var globalLog Logger
+type Logger interface {
+	LogCommand(command Command, vars map[string]string)
+	LogQuoteServ(username string, price string, stocksymbol string, quoteTimestamp string, cryptokey string, trans string)
+	LogTransaction(action string, username string, amount int, trans string)
+	LogErrorEvent(command Command, vars map[string]string, emessage string)
+}
 
-type Logger struct {
-	Conn    *amqp.Connection
-	Channel *amqp.Channel
-	Queue   amqp.Queue
+type LogConnection struct {
+	Connection *amqp.Connection
+	Channel    *amqp.Channel
+	Queue      amqp.Queue
 }
 
 func failOnError(err error, msg string) {
@@ -140,22 +145,22 @@ func failOnError(err error, msg string) {
 	}
 }
 
-func InitLogger() (err error) {
+func NewLoggerConnection() (logconn *LogConnection) {
 	rabbitUser := os.Getenv("RABBITMQ_DEFAULT_USER")
 	rabbitPass := os.Getenv("RABBITMQ_DEFAULT_PASS")
 	rabbitHost := os.Getenv("RABBITMQ_HOST")
 	rabbitPort := os.Getenv("RABBITMQ_PORT")
 	url := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
 
-	globalLog = Logger{}
+	connection, err := amqp.Dial(url)
+	logconn = &LogConnection{Connection: connection}
 
-	globalLog.Conn, err = amqp.Dial(url)
 	failOnError(err, fmt.Sprintf("Failed to connect to Rabbit %s", url))
 
-	globalLog.Channel, err = globalLog.Conn.Channel()
+	logconn.Channel, err = logconn.Connection.Channel()
 	failOnError(err, "Failed to open a channel")
 
-	globalLog.Queue, err = globalLog.Channel.QueueDeclare(
+	logconn.Queue, err = logconn.Channel.QueueDeclare(
 		"log", // name
 		false, // durable
 		false, // delete when unused
@@ -168,21 +173,21 @@ func InitLogger() (err error) {
 	return
 }
 
-func Close() {
-	if globalLog.Conn != nil {
-		globalLog.Conn.Close()
-	}
-	if globalLog.Channel != nil {
-		globalLog.Channel.Close()
-	}
-}
+// func Close() {
+// 	if globalLog.Conn != nil {
+// 		globalLog.Conn.Close()
+// 	}
+// 	if globalLog.Channel != nil {
+// 		globalLog.Channel.Close()
+// 	}
+// }
 
-func publishXMLEntry(entry []byte) {
-	err := globalLog.Channel.Publish(
-		"",                   // exchange
-		globalLog.Queue.Name, // routing key
-		false,                // mandatory
-		false,                // immediate
+func (logconn *LogConnection) publishXMLEntry(entry []byte) {
+	err := logconn.Channel.Publish(
+		"",                 // exchange
+		logconn.Queue.Name, // routing key
+		false,              // mandatory
+		false,              // immediate
 		amqp.Publishing{
 			ContentType: "text/xml",
 			Body:        entry,
@@ -251,7 +256,7 @@ func validateSchema(ele []byte) {
 	}
 }
 
-func LogCommand(command Command, vars map[string]string) {
+func (logconn *LogConnection) LogCommand(command Command, vars map[string]string) {
 	if _, exist := validCommands[command]; exist {
 		timestamp := getUnixTimestamp()
 		v := UserCommandType{Timestamp: timestamp, Server: server, Command: command}
@@ -282,12 +287,12 @@ func LogCommand(command Command, vars map[string]string) {
 			utils.LogErr(err, "failed to marshal log command.")
 			return
 		}
-		publishXMLEntry(output)
+		logconn.publishXMLEntry(output)
 		validateSchema(output)
 	}
 }
 
-func LogQuoteServ(username string, price string, stocksymbol string, quoteTimestamp string, cryptokey string, trans string) {
+func (logconn *LogConnection) LogQuoteServ(username string, price string, stocksymbol string, quoteTimestamp string, cryptokey string, trans string) {
 	timestamp := getUnixTimestamp()
 
 	v := QuoteServerType{Timestamp: timestamp,
@@ -305,11 +310,11 @@ func LogQuoteServ(username string, price string, stocksymbol string, quoteTimest
 		return
 	}
 
-	publishXMLEntry(output)
+	logconn.publishXMLEntry(output)
 	validateSchema(output)
 }
 
-func LogTransaction(action string, username string, amount int, trans string) {
+func (logconn *LogConnection) LogTransaction(action string, username string, amount int, trans string) {
 	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		utils.LogErr(err, "failed to log transaction.")
@@ -332,7 +337,7 @@ func LogTransaction(action string, username string, amount int, trans string) {
 		utils.LogErr(err, "failed to marshal transaction.")
 		return
 	}
-	publishXMLEntry(output)
+	logconn.publishXMLEntry(output)
 	validateSchema(output)
 }
 
@@ -357,7 +362,7 @@ func LogTransaction(action string, username string, amount int, trans string) {
 
 // }
 
-func LogErrorEvent(command Command, vars map[string]string, emessage string) {
+func (logconn *LogConnection) LogErrorEvent(command Command, vars map[string]string, emessage string) {
 	timestamp := getUnixTimestamp()
 	v := ErrorEventType{
 		Timestamp:    timestamp,
@@ -389,6 +394,6 @@ func LogErrorEvent(command Command, vars map[string]string, emessage string) {
 		return
 	}
 
-	publishXMLEntry(output)
+	logconn.publishXMLEntry(output)
 	validateSchema(output)
 }

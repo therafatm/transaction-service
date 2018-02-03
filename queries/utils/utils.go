@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"transaction_service/logger"
 )
 
 func QueryQuoteHTTP(username string, stock string) (queryString string, err error) {
@@ -71,6 +69,6 @@ func QueryQuotePrice(username string, symbol string, trans string) (quote int, e
 		return
 	}
 
-	logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
+	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
 	return
 }
