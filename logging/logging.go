@@ -120,8 +120,7 @@ type ErrorEventType struct {
 }
 
 const server = "transaction"
-const logfile = "log.xml"
-const schemaFile = "logger/schema.xsd"
+const schemaFile = "logging/schema.xsd"
 const prefix = ""
 const indent = "\t"
 
@@ -315,13 +314,6 @@ func (logconn *LogConnection) LogQuoteServ(username string, price string, stocks
 }
 
 func (logconn *LogConnection) LogTransaction(action string, username string, amount int, trans string) {
-	file, err := os.OpenFile(logfile, os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		utils.LogErr(err, "failed to log transaction.")
-		return
-	}
-	defer file.Close()
-
 	timestamp := getUnixTimestamp()
 	v := AccountTransactionType{
 		Timestamp:         timestamp,

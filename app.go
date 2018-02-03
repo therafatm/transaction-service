@@ -15,7 +15,7 @@ import (
 	"transaction_service/queries/transdb"
 	"transaction_service/queries/utils"
 	//"transaction_service/triggers/triggermanager"
-	"transaction_service/logger"
+	"transaction_service/logging"
 	"transaction_service/utils"
 
 	"github.com/gorilla/mux"
@@ -29,28 +29,6 @@ type Env struct {
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
-
-func connectToDB() (tdb *transdb.TransactionDB) {
-	var (
-		host     = os.Getenv("POSTGRES_HOST")
-		user     = os.Getenv("POSTGRES_USER")
-		password = os.Getenv("POSTGRES_PASSWORD")
-		dbname   = os.Getenv("POSTGRES_DB")
-		port     = os.Getenv("POSTGRES_PORT")
-	)
-
-	config := fmt.Sprintf("host=%s port=%s user=%s "+
-		"password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
-
-	db, err := transdb.NewTransactionDBConnection(config)
-	if err != nil {
-		utils.LogErr(err, "Error connecting to DB.")
-		panic(err)
-	}
-	tdb = &db
-	return
-}
 
 func (env *Env) respondWithError(w http.ResponseWriter, code int, err error, message string, command logging.Command, vars map[string]string) {
 	env.logger.LogErrorEvent(command, vars, message)
@@ -677,9 +655,8 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 
 func main() {
 	logger := logging.NewLoggerConnection()
-	env := &Env{logger: logger}
-
-	env.tdb = connectToDB()
+	tdb := transdb.NewTransactionDBConnection()
+	env := &Env{logger: logger, tdb: tdb}
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
