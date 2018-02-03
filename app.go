@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"transaction_service/queries/actions"
 	"transaction_service/queries/models"
+	"transaction_service/queries/transdb"
 	"transaction_service/queries/utils"
 	//"transaction_service/triggers/triggermanager"
 	"transaction_service/logger"
@@ -23,11 +23,13 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var db *sql.DB
+type Env struct {
+	tdb transdb.TransactionDataStore
+}
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logger.Command)
 
-func connectToDB() *sql.DB {
+func connectToDB() (tdb *transdb.TransactionDB) {
 	var (
 		host     = os.Getenv("POSTGRES_HOST")
 		user     = os.Getenv("POSTGRES_USER")
@@ -40,13 +42,13 @@ func connectToDB() *sql.DB {
 		"password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
 
-	db, err := sql.Open("postgres", config)
+	db, err := transdb.ConnectTransactionDB(config)
 	if err != nil {
 		utils.LogErr(err, "Error connecting to DB.")
 		panic(err)
 	}
-
-	return db
+	tdb = &db
+	return
 }
 
 func respondWithError(w http.ResponseWriter, code int, err error, message string, command logger.Command, vars map[string]string) {
@@ -64,7 +66,7 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 }
 
 //TODO: refactor  + test
-func getQuoute(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) getQuoute(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	price, err := dbutils.QueryQuotePrice(vars["username"], vars["symbol"], vars["trans"])
 	if err != nil {
@@ -76,9 +78,9 @@ func getQuoute(w http.ResponseWriter, r *http.Request, command logger.Command) {
 }
 
 //TODO: refactor
-func clearUsers(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) clearUsers(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
-	err := dbactions.ClearUsers()
+	err := env.tdb.ClearUsers()
 	if err != nil {
 		errMsg := "Failed to clear users"
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -88,7 +90,7 @@ func clearUsers(w http.ResponseWriter, r *http.Request, command logger.Command) 
 	w.Write([]byte("Cleared users succesfully."))
 }
 
-func addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	moneyStr := vars["money"]
@@ -100,12 +102,12 @@ func addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
 		return
 	}
 
-	user, err := dbutils.QueryUser(username)
+	user, err := env.tdb.QueryUser(username)
 
 	if err != nil && err == sql.ErrNoRows {
 		//user no exist
 		newUser := models.User{Username: username, Money: money}
-		_, err := dbactions.InsertUser(newUser)
+		_, err := env.tdb.InsertUser(newUser)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
@@ -119,7 +121,7 @@ func addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	} else {
 		// user exists
 		user.Money += money
-		_, err = dbactions.UpdateUser(user)
+		_, err = env.tdb.UpdateUser(user)
 
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -127,7 +129,7 @@ func addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
 		}
 	}
 
-	user, err = dbutils.QueryUser(username)
+	user, err = env.tdb.QueryUser(username)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -136,11 +138,11 @@ func addUser(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	respondWithJSON(w, http.StatusOK, user)
 }
 
-func availableBalance(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 
-	_, err := dbutils.QueryUser(username)
+	_, err := env.tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -151,7 +153,7 @@ func availableBalance(w http.ResponseWriter, r *http.Request, command logger.Com
 		return
 	}
 
-	balance, err := dbutils.QueryUserAvailableBalance(username)
+	balance, err := env.tdb.QueryUserAvailableBalance(username)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -164,12 +166,12 @@ func availableBalance(w http.ResponseWriter, r *http.Request, command logger.Com
 	respondWithJSON(w, http.StatusOK, m)
 }
 
-func availableShares(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
 
-	_, err := dbutils.QueryUser(username)
+	_, err := env.tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -180,7 +182,7 @@ func availableShares(w http.ResponseWriter, r *http.Request, command logger.Comm
 		return
 	}
 
-	balance, err := dbutils.QueryUserAvailableShares(username, symbol)
+	balance, err := env.tdb.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -193,7 +195,7 @@ func availableShares(w http.ResponseWriter, r *http.Request, command logger.Comm
 	respondWithJSON(w, http.StatusOK, m)
 }
 
-func buyOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -206,7 +208,7 @@ func buyOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 		return
 	}
 
-	balance, err := dbutils.QueryUserAvailableBalance(username)
+	balance, err := env.tdb.QueryUserAvailableBalance(username)
 
 	// check that user exists and has enough money
 	if err != nil {
@@ -240,14 +242,14 @@ func buyOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
-	rid, err := dbactions.AddReservation(nil, reservation)
+	rid, err := env.tdb.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	reserv, err := dbutils.QueryReservation(rid)
+	reserv, err := env.tdb.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -257,10 +259,10 @@ func buyOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	respondWithJSON(w, http.StatusOK, reserv)
 
 	// remove reservation if not bought within 60 seconds
-	go dbactions.RemoveOrder(rid, 60)
+	go env.tdb.RemoveOrder(rid, 60)
 }
 
-func sellOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -282,7 +284,7 @@ func sellOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 
 	sharesToSell := sellAmount / quote
 
-	availableShares, err := dbutils.QueryUserAvailableShares(username, symbol)
+	availableShares, err := env.tdb.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error querying available shares for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -301,14 +303,14 @@ func sellOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
-	rid, err := dbactions.AddReservation(nil, reservation)
+	rid, err := env.tdb.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting sell order."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	reserv, err := dbutils.QueryReservation(rid)
+	reserv, err := env.tdb.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -318,15 +320,15 @@ func sellOrder(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	respondWithJSON(w, http.StatusOK, reserv)
 
 	// remove reservation if not bought within 60 seconds
-	go dbactions.RemoveOrder(rid, 60)
+	go env.tdb.RemoveOrder(rid, 60)
 }
 
-func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
+func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	var vars = mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
 
-	res, err := dbutils.QueryLastReservation(username, orderType)
+	res, err := env.tdb.QueryLastReservation(username, orderType)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -341,11 +343,11 @@ func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderT
 	var amount int
 
 	if orderType == models.BUY {
-		balance, err = dbutils.QueryUserAvailableBalance(username)
+		balance, err = env.tdb.QueryUserAvailableBalance(username)
 		amount = res.Amount
 
 	} else {
-		balance, err = dbutils.QueryUserAvailableShares(username, res.Symbol)
+		balance, err = env.tdb.QueryUserAvailableShares(username, res.Symbol)
 		amount = res.Shares
 	}
 
@@ -369,14 +371,14 @@ func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderT
 		return
 	}
 
-	err = dbactions.CommitBuySellTransaction(res, trans)
+	err = env.tdb.CommitBuySellTransaction(res, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error commiting  %s order.", orderType)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	stock, err := dbutils.QueryUserStock(res.Username, res.Symbol)
+	stock, err := env.tdb.QueryUserStock(res.Username, res.Symbol)
 	if err != nil {
 		errMsg := "Error could not find updated stock."
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -386,18 +388,18 @@ func commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderT
 	return
 }
 
-func commitBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	commitOrder(w, r, models.BUY, command)
+func (env *Env) commitBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.commitOrder(w, r, models.BUY, command)
 }
 
-func commitSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	commitOrder(w, r, models.SELL, command)
+func (env *Env) commitSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.commitOrder(w, r, models.SELL, command)
 }
 
-func cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
+func (env *Env) cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-	res, err := dbactions.RemoveLastOrderTypeReservation(username, orderType)
+	res, err := env.tdb.RemoveLastOrderTypeReservation(username, orderType)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error deleting last %s reservation.", orderType)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -407,15 +409,15 @@ func cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderT
 	return
 }
 
-func cancelSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	cancelOrder(w, r, models.SELL, command)
+func (env *Env) cancelSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.cancelOrder(w, r, models.SELL, command)
 }
 
-func cancelBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	cancelOrder(w, r, models.BUY, command)
+func (env *Env) cancelBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.cancelOrder(w, r, models.BUY, command)
 }
 
-func setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -428,7 +430,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command
 		return
 	}
 
-	trig, err := dbutils.QueryUserTrigger(username, symbol, models.BUY)
+	trig, err := env.tdb.QueryUserTrigger(username, symbol, models.BUY)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -441,7 +443,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command
 		return
 	}
 
-	balance, err := dbutils.QueryUserAvailableBalance(username)
+	balance, err := env.tdb.QueryUserAvailableBalance(username)
 	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -462,14 +464,14 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command
 		return
 	}
 
-	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount, trans)
+	tid, err := env.tdb.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting buy amount for %s: %s", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err = dbutils.QueryStockTrigger(tid)
+	trig, err = env.tdb.QueryStockTrigger(tid)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error trigger %d not found after insert.", tid)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -479,7 +481,7 @@ func setBuyAmount(w http.ResponseWriter, r *http.Request, command logger.Command
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setSellAmount(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -492,14 +494,14 @@ func setSellAmount(w http.ResponseWriter, r *http.Request, command logger.Comman
 		return
 	}
 
-	availableShares, err := dbutils.QueryUserAvailableShares(username, symbol)
+	availableShares, err := env.tdb.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err := dbutils.QueryUserTrigger(username, symbol, models.SELL)
+	trig, err := env.tdb.QueryUserTrigger(username, symbol, models.SELL)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -528,14 +530,14 @@ func setSellAmount(w http.ResponseWriter, r *http.Request, command logger.Comman
 		return
 	}
 
-	tid, err := dbactions.CommitSetOrderTransaction(username, symbol, models.SELL, sellShares, trans)
+	tid, err := env.tdb.CommitSetOrderTransaction(username, symbol, models.SELL, sellShares, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting %s amount for %s: %s", models.SELL, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err = dbutils.QueryStockTrigger(tid)
+	trig, err = env.tdb.QueryStockTrigger(tid)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error trigger %d not found after insert.", tid)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -545,7 +547,7 @@ func setSellAmount(w http.ResponseWriter, r *http.Request, command logger.Comman
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
+func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
@@ -556,7 +558,7 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 		return
 	}
 
-	trig, err := dbutils.QueryUserTrigger(username, symbol, orderType)
+	trig, err := env.tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -572,7 +574,7 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	trig.TriggerPrice = triggerPrice
 	trig.Executable = true
 
-	err = dbactions.UpdateTrigger(trig)
+	err = env.tdb.UpdateTrigger(trig)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to update %s trigger for %s and %s", orderType, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -580,7 +582,7 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	}
 
 	//For err checking consider removing
-	trig, err = dbutils.QueryStockTrigger(trig.ID)
+	trig, err = env.tdb.QueryStockTrigger(trig.ID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to query updated %s trigger for %s and %s", orderType, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -590,20 +592,20 @@ func setOrderTrigger(w http.ResponseWriter, r *http.Request, orderType models.Or
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func setBuyTrigger(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	setOrderTrigger(w, r, models.BUY, command)
+func (env *Env) setBuyTrigger(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.setOrderTrigger(w, r, models.BUY, command)
 }
 
-func setSellTrigger(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	setOrderTrigger(w, r, models.SELL, command)
+func (env *Env) setSellTrigger(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.setOrderTrigger(w, r, models.SELL, command)
 }
 
-func executeTriggerTest(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
 
-	rTrigs, err := dbactions.QueryAndExecuteCurrentTriggers(trans)
+	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -612,13 +614,13 @@ func executeTriggerTest(w http.ResponseWriter, r *http.Request, command logger.C
 	respondWithJSON(w, http.StatusOK, rTrigs)
 }
 
-func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
+func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logger.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
 
-	trig, err := dbutils.QueryUserTrigger(username, symbol, orderType)
+	trig, err := env.tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Error no %s trigger exists for %s and %s.", orderType, username, symbol)
@@ -630,7 +632,7 @@ func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.Orde
 		return
 	}
 
-	trig, err = dbactions.CancelOrderTransaction(trig, trans)
+	trig, err = env.tdb.CancelOrderTransaction(trig, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to cancel %s trigger for %s and %s", orderType, username, symbol)
 		respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -640,19 +642,19 @@ func cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.Orde
 	respondWithJSON(w, http.StatusOK, trig)
 }
 
-func cancelSetBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	cancelTrigger(w, r, models.BUY, command)
+func (env *Env) cancelSetBuy(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.cancelTrigger(w, r, models.BUY, command)
 }
 
-func cancelSetSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
-	cancelTrigger(w, r, models.SELL, command)
+func (env *Env) cancelSetSell(w http.ResponseWriter, r *http.Request, command logger.Command) {
+	env.cancelTrigger(w, r, models.SELL, command)
 }
 
-func dumplog(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) dumplog(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	return
 }
 
-func displaySummary(w http.ResponseWriter, r *http.Request, command logger.Command) {
+func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command logger.Command) {
 	return
 }
 
@@ -673,44 +675,41 @@ func logHandler(fn extendedHandlerFunc, command logger.Command) http.HandlerFunc
 }
 
 func main() {
-	db = connectToDB()
-	defer db.Close()
-
-	dbactions.SetActionsDB(db)
-	dbutils.SetUtilsDB(db)
+	db := connectToDB()
+	env := &Env{db}
 
 	logger.InitLogger()
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
 
-	router.HandleFunc("/api/clearUsers", logHandler(clearUsers, ""))
-	router.HandleFunc("/api/availableBalance/{username}/{trans}", logHandler(availableBalance, ""))
-	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", logHandler(availableShares, ""))
+	router.HandleFunc("/api/clearUsers", logHandler(env.clearUsers, ""))
+	router.HandleFunc("/api/availableBalance/{username}/{trans}", logHandler(env.availableBalance, ""))
+	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", logHandler(env.availableShares, ""))
 
-	router.HandleFunc("/api/add/{username}/{money}/{trans}", logHandler(addUser, logger.ADD))
-	router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", logHandler(getQuoute, logger.QUOTE))
+	router.HandleFunc("/api/add/{username}/{money}/{trans}", logHandler(env.addUser, logger.ADD))
+	router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", logHandler(env.getQuoute, logger.QUOTE))
 
-	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", logHandler(buyOrder, logger.BUY))
-	router.HandleFunc("/api/commitBuy/{username}/{trans}", logHandler(commitBuy, logger.COMMIT_BUY))
-	router.HandleFunc("/api/cancelBuy/{username}/{trans}", logHandler(cancelBuy, logger.CANCEL_BUY))
+	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", logHandler(env.buyOrder, logger.BUY))
+	router.HandleFunc("/api/commitBuy/{username}/{trans}", logHandler(env.commitBuy, logger.COMMIT_BUY))
+	router.HandleFunc("/api/cancelBuy/{username}/{trans}", logHandler(env.cancelBuy, logger.CANCEL_BUY))
 
-	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", logHandler(sellOrder, logger.SELL))
-	router.HandleFunc("/api/commitSell/{username}/{trans}", logHandler(commitSell, logger.COMMIT_SELL))
-	router.HandleFunc("/api/cancelSell/{username}/{trans}", logHandler(cancelSell, logger.CANCEL_SELL))
+	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", logHandler(env.sellOrder, logger.SELL))
+	router.HandleFunc("/api/commitSell/{username}/{trans}", logHandler(env.commitSell, logger.COMMIT_SELL))
+	router.HandleFunc("/api/cancelSell/{username}/{trans}", logHandler(env.cancelSell, logger.CANCEL_SELL))
 
-	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setBuyAmount, logger.SET_BUY_AMOUNT))
-	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setBuyTrigger, logger.SET_BUY_TRIGGER))
-	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", logHandler(cancelSetBuy, logger.CANCEL_SET_BUY))
+	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", logHandler(env.setBuyAmount, logger.SET_BUY_AMOUNT))
+	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(env.setBuyTrigger, logger.SET_BUY_TRIGGER))
+	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", logHandler(env.cancelSetBuy, logger.CANCEL_SET_BUY))
 
-	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", logHandler(setSellAmount, logger.SET_SELL_AMOUNT))
-	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", logHandler(cancelSetSell, logger.CANCEL_SET_SELL))
-	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(setSellTrigger, logger.SET_SELL_TRIGGER))
+	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", logHandler(env.setSellAmount, logger.SET_SELL_AMOUNT))
+	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", logHandler(env.cancelSetSell, logger.CANCEL_SET_SELL))
+	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", logHandler(env.setSellTrigger, logger.SET_SELL_TRIGGER))
 
-	router.HandleFunc("/api/dumplog/{filename}/{trans}", logHandler(dumplog, logger.DUMPLOG))
-	router.HandleFunc("/api/displaySummary/{username}/{trans}", logHandler(displaySummary, logger.DISPLAY_SUMMARY))
+	router.HandleFunc("/api/dumplog/{filename}/{trans}", logHandler(env.dumplog, logger.DUMPLOG))
+	router.HandleFunc("/api/displaySummary/{username}/{trans}", logHandler(env.displaySummary, logger.DISPLAY_SUMMARY))
 
-	router.HandleFunc("/api/executeTriggers/{username}/{trans}", logHandler(executeTriggerTest, ""))
+	router.HandleFunc("/api/executeTriggers/{username}/{trans}", logHandler(env.executeTriggerTest, ""))
 
 	http.Handle("/", router)
 
