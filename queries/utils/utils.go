@@ -21,7 +21,7 @@ func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) (err err
 
 	if queryStruct.Qtype == models.CacheGet {
 		val, err := cache.Get(key).Result()
-		if err != nil {
+		if err == nil {
 			queryStruct.Value = val
 		}
 	} else {

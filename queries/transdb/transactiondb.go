@@ -63,7 +63,7 @@ func NewQuoteCacheConnection() (cache *redis.Client) {
 
 	pong, err := client.Ping().Result()
 	if err != nil {
-		utils.LogErr(err, "Error connecting to DB.")
+		utils.LogErr(err, "Error connecting to quote cache.")
 		panic(err)
 	}
 
@@ -87,7 +87,7 @@ func NewTransactionDBConnection() (tdb *TransactionDB) {
 
 	logger := logging.NewLoggerConnection()
 
-	tdb = &TransactionDB{quotedb: db, logger: logger}
+	tdb = &TransactionDB{db: db, logger: logger}
 
 	return
 }
