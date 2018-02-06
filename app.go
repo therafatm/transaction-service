@@ -18,14 +18,16 @@ import (
 	"transaction_service/logging"
 	"transaction_service/utils"
 
+	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
 	// "github.com/phayes/freeport"
 	_ "github.com/lib/pq"
 )
 
 type Env struct {
-	logger logging.Logger
-	tdb    transdb.TransactionDataStore
+	logger     logging.Logger
+	tdb        transdb.TransactionDataStore
+	quoteCache *redis.Client
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
@@ -656,7 +658,9 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 func main() {
 	logger := logging.NewLoggerConnection()
 	tdb := transdb.NewTransactionDBConnection()
-	env := &Env{logger: logger, tdb: tdb}
+	quoteCache := transdb.NewQuoteCacheConnection()
+
+	env := &Env{quoteCache: quoteCache, quotelogger: logger, tdb: tdb}
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")

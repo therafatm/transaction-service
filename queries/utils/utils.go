@@ -10,9 +10,27 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"transaction_service/queries/models"
+
+	"github.com/go-redis/redis"
 )
 
-func QueryQuoteHTTP(username string, stock string) (queryString string, err error) {
+func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) (err error) {
+	key := fmt.Sprintf("%s:%s", queryStruct.Username, queryStruct.Symbol)
+
+	if queryStruct.Qtype == models.CacheGet {
+		val, err := cache.Get(key).Result()
+		if err != nil {
+			queryStruct.Value = val
+		}
+	} else {
+		_, err = cache.Set(key, queryStruct.Value, time.Minute*1).Result()
+	}
+	return
+}
+
+func QueryQuoteHTTP(cache *redis.Client, username string, stock string) (queryString string, err error) {
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	url := fmt.Sprintf("http://%s:%s", host, port)
@@ -24,12 +42,13 @@ func QueryQuoteHTTP(username string, stock string) (queryString string, err erro
 	if err != nil {
 		return
 	}
+
 	queryString = string(body)
 	log.Println(queryString)
 	return
 }
 
-func QueryQuoteTCP(username string, stock string) (queryString string, err error) {
+func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryString string, err error) {
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	addr := strings.Join([]string{host, port}, ":")
@@ -49,17 +68,26 @@ func QueryQuoteTCP(username string, stock string) (queryString string, err error
 	return
 }
 
-func QueryQuotePrice(username string, symbol string, trans string) (quote int, err error) {
+func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans string) (quote int, err error) {
 	var body string
-	_, exist := os.LookupEnv("PROD")
-	if exist {
-		body, err = QueryQuoteTCP(username, symbol)
+	var setCache = true
+
+	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet}
+	err = queryRedisKey(cache, queryStruct)
+	if err == nil {
+		body = queryStruct.Value
+		setCache = false
 	} else {
-		body, err = QueryQuoteHTTP(username, symbol)
-		fmt.Printf(body)
-	}
-	if err != nil {
-		return
+		_, exist := os.LookupEnv("PROD")
+		if exist {
+			body, err = QueryQuoteTCP(cache, username, symbol)
+		} else {
+			body, err = QueryQuoteHTTP(cache, username, symbol)
+			fmt.Printf(body)
+		}
+		if err != nil {
+			return
+		}
 	}
 
 	split := strings.Split(body, ",")
@@ -67,6 +95,15 @@ func QueryQuotePrice(username string, symbol string, trans string) (quote int, e
 	quote, err = strconv.Atoi(priceStr)
 	if err != nil {
 		return
+	}
+
+	if setCache {
+		queryStruct.Qtype = models.CacheSet
+		queryStruct.Value = priceStr
+		err = queryRedisKey(cache, queryStruct)
+		if err != nil {
+			log.Println(err.Error())
+		}
 	}
 
 	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)

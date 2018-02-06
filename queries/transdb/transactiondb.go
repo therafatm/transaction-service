@@ -11,6 +11,8 @@ import (
 	"transaction_service/queries/models"
 	"transaction_service/queries/utils"
 	"transaction_service/utils"
+
+	"github.com/go-redis/redis"
 )
 
 //TODO: think about splitting queries and actions again
@@ -48,6 +50,26 @@ type TransactionDB struct {
 	logger logging.Logger
 }
 
+func NewQuoteCacheConnection() (cache *redis.Client) {
+	host := os.Getenv("REDIS_HOST")
+	port := os.Getenv("REDIS_PORT")
+	addr := fmt.Sprintf("%s:%s", host, port)
+
+	cache := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	pong, err := client.Ping().Result()
+	if err != nil {
+		utils.LogErr(err, "Error connecting to DB.")
+		panic(err)
+	}
+
+	return
+}
+
 func NewTransactionDBConnection() (tdb *TransactionDB) {
 	host := os.Getenv("POSTGRES_HOST")
 	user := os.Getenv("POSTGRES_USER")
@@ -65,7 +87,8 @@ func NewTransactionDBConnection() (tdb *TransactionDB) {
 
 	logger := logging.NewLoggerConnection()
 
-	tdb = &TransactionDB{db: db, logger: logger}
+	tdb = &TransactionDB{quotedb: db, logger: logger}
+
 	return
 }
 
@@ -98,6 +121,7 @@ func (tdb *TransactionDB) QueryUser(username string) (user models.User, err erro
 }
 
 func (tdb *TransactionDB) QueryUserStock(username string, symbol string) (stock models.Stock, err error) {
+
 	query := "SELECT sid, username, symbol, shares FROM stocks WHERE username = $1 AND symbol = $2"
 	err = tdb.db.QueryRow(query, username, symbol).Scan(&stock.ID, &stock.Username, &stock.Symbol, &stock.Shares)
 	return

@@ -1,10 +1,16 @@
 package models
 
 type OrderType string
+type CacheQueryType string
 
 const (
 	BUY  = OrderType("BUY")
 	SELL = OrderType("SELL")
+)
+
+const (
+	CacheGet = CacheQueryType("get")
+	CacheSet = CacheQueryType("set")
 )
 
 type User struct {
@@ -28,6 +34,13 @@ type Stock struct {
 	Username string `json:"username"`
 	Symbol   string `json:"symbol"`
 	Shares   int    `json:"shares"`
+}
+
+type StockQuote struct {
+	Username string         `json:"username"`
+	Symbol   string         `json:"symbol"`
+	Value    string         `json:"amount"`
+	Qtype    CacheQueryType `json:"CacheQueryType"`
 }
 
 type Trigger struct {
