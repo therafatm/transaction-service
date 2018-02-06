@@ -11,11 +11,10 @@ import (
 	"strconv"
 	"time"
 
+	"transaction_service/logging"
 	"transaction_service/queries/models"
 	"transaction_service/queries/transdb"
 	"transaction_service/queries/utils"
-	//"transaction_service/triggers/triggermanager"
-	"transaction_service/logging"
 	"transaction_service/utils"
 
 	"github.com/go-redis/redis"
@@ -581,19 +580,19 @@ func (env *Env) setSellTrigger(w http.ResponseWriter, r *http.Request, command l
 	env.setOrderTrigger(w, r, models.SELL, command)
 }
 
-// func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, command logging.Command) {
-// 	vars := mux.Vars(r)
-// 	username := vars["username"]
-// 	trans := vars["trans"]
+func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, command logging.Command) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	trans := vars["trans"]
 
-// 	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(trans)
-// 	if err != nil {
-// 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
-// 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-// 		return
-// 	}
-// 	env.respondWithJSON(w, http.StatusOK, rTrigs)
-// }
+	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(env.quoteCache, trans)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+	env.respondWithJSON(w, http.StatusOK, rTrigs)
+}
 
 func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logging.Command) {
 	vars := mux.Vars(r)
@@ -697,8 +696,6 @@ func main() {
 	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
 
 	http.Handle("/", router)
-
-	// go triggermanager.Manage()
 
 	log.Println("Running transaction server on port: " + port)
 
