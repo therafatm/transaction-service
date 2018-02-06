@@ -54,7 +54,7 @@ func (env *Env) getQuoute(w http.ResponseWriter, r *http.Request, command loggin
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-	env.respondWithJSON(w, http.StatusOK, map[string]string{"price": string(price), "symbol": vars["symbol"]})
+	env.respondWithJSON(w, http.StatusOK, map[string]string{"price": strconv.Itoa(price), "symbol": vars["symbol"]})
 }
 
 //TODO: refactor

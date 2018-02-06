@@ -1,6 +1,7 @@
 package dbutils
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,18 +17,23 @@ import (
 	"github.com/go-redis/redis"
 )
 
-func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) (err error) {
+func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
 	key := fmt.Sprintf("%s:%s", queryStruct.Username, queryStruct.Symbol)
+	var err error
 
 	if queryStruct.Qtype == models.CacheGet {
 		val, err := cache.Get(key).Result()
-		if err == nil {
+		if err == redis.Nil {
+			err = errors.New("Key does not exist")
+			return err
+		} else if err == nil {
 			queryStruct.Value = val
 		}
 	} else {
 		_, err = cache.Set(key, queryStruct.Value, time.Minute*1).Result()
 	}
-	return
+
+	return err
 }
 
 func QueryQuoteHTTP(cache *redis.Client, username string, stock string) (queryString string, err error) {
@@ -70,24 +76,27 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 
 func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans string) (quote int, err error) {
 	var body string
-	var setCache = true
 
 	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet}
 	err = queryRedisKey(cache, queryStruct)
+
 	if err == nil {
-		body = queryStruct.Value
-		setCache = false
+		// cache hit
+		quote, err = strconv.Atoi(queryStruct.Value)
+		fmt.Println("Cache hit!")
+		return
+	}
+
+	_, prod := os.LookupEnv("PROD")
+	if prod {
+		body, err = QueryQuoteTCP(cache, username, symbol)
 	} else {
-		_, exist := os.LookupEnv("PROD")
-		if exist {
-			body, err = QueryQuoteTCP(cache, username, symbol)
-		} else {
-			body, err = QueryQuoteHTTP(cache, username, symbol)
-			fmt.Printf(body)
-		}
-		if err != nil {
-			return
-		}
+		body, err = QueryQuoteHTTP(cache, username, symbol)
+		fmt.Println("Printing body")
+		fmt.Printf(body)
+	}
+	if err != nil {
+		return
 	}
 
 	split := strings.Split(body, ",")
@@ -97,13 +106,12 @@ func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans 
 		return
 	}
 
-	if setCache {
-		queryStruct.Qtype = models.CacheSet
-		queryStruct.Value = priceStr
-		err = queryRedisKey(cache, queryStruct)
-		if err != nil {
-			log.Println(err.Error())
-		}
+	// set cache
+	queryStruct.Qtype = models.CacheSet
+	queryStruct.Value = priceStr
+	err = queryRedisKey(cache, queryStruct)
+	if err != nil {
+		log.Println(err.Error())
 	}
 
 	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
