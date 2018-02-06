@@ -581,19 +581,19 @@ func (env *Env) setSellTrigger(w http.ResponseWriter, r *http.Request, command l
 	env.setOrderTrigger(w, r, models.SELL, command)
 }
 
-func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, command logging.Command) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	trans := vars["trans"]
+// func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, command logging.Command) {
+// 	vars := mux.Vars(r)
+// 	username := vars["username"]
+// 	trans := vars["trans"]
 
-	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(trans)
-	if err != nil {
-		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
-	}
-	env.respondWithJSON(w, http.StatusOK, rTrigs)
-}
+// 	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(trans)
+// 	if err != nil {
+// 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
+// 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+// 		return
+// 	}
+// 	env.respondWithJSON(w, http.StatusOK, rTrigs)
+// }
 
 func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logging.Command) {
 	vars := mux.Vars(r)
@@ -660,10 +660,10 @@ func main() {
 	tdb := transdb.NewTransactionDBConnection()
 	quoteCache := transdb.NewQuoteCacheConnection()
 
-	defer tdb.db.Close()
+	defer tdb.DB.Close()
 	defer quoteCache.Close()
 
-	env := &Env{quoteCache: quoteCache, quotelogger: logger, tdb: tdb}
+	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb}
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
@@ -694,7 +694,7 @@ func main() {
 	router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
 	router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
-	router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
+	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
 
 	http.Handle("/", router)
 
