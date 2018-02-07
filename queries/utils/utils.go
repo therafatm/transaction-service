@@ -1,6 +1,7 @@
 package dbutils
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -10,9 +11,32 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"transaction_service/queries/models"
+
+	"github.com/go-redis/redis"
 )
 
-func QueryQuoteHTTP(username string, stock string) (queryString string, err error) {
+func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
+	key := fmt.Sprintf("%s:%s", queryStruct.Username, queryStruct.Symbol)
+	var err error
+
+	if queryStruct.Qtype == models.CacheGet {
+		val, err := cache.Get(key).Result()
+		if err == redis.Nil {
+			err = errors.New("Key does not exist")
+			return err
+		} else if err == nil {
+			queryStruct.Value = val
+		}
+	} else {
+		_, err = cache.Set(key, queryStruct.Value, time.Minute*1).Result()
+	}
+
+	return err
+}
+
+func QueryQuoteHTTP(cache *redis.Client, username string, stock string) (queryString string, err error) {
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	url := fmt.Sprintf("http://%s:%s", host, port)
@@ -24,12 +48,13 @@ func QueryQuoteHTTP(username string, stock string) (queryString string, err erro
 	if err != nil {
 		return
 	}
+
 	queryString = string(body)
 	log.Println(queryString)
 	return
 }
 
-func QueryQuoteTCP(username string, stock string) (queryString string, err error) {
+func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryString string, err error) {
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	addr := strings.Join([]string{host, port}, ":")
@@ -49,13 +74,25 @@ func QueryQuoteTCP(username string, stock string) (queryString string, err error
 	return
 }
 
-func QueryQuotePrice(username string, symbol string, trans string) (quote int, err error) {
+func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans string) (quote int, err error) {
 	var body string
-	_, exist := os.LookupEnv("PROD")
-	if exist {
-		body, err = QueryQuoteTCP(username, symbol)
+
+	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet}
+	err = queryRedisKey(cache, queryStruct)
+
+	if err == nil {
+		// cache hit
+		quote, err = strconv.Atoi(queryStruct.Value)
+		fmt.Println("Cache hit!")
+		return
+	}
+
+	_, prod := os.LookupEnv("PROD")
+	if prod {
+		body, err = QueryQuoteTCP(cache, username, symbol)
 	} else {
-		body, err = QueryQuoteHTTP(username, symbol)
+		body, err = QueryQuoteHTTP(cache, username, symbol)
+		fmt.Println("Printing body")
 		fmt.Printf(body)
 	}
 	if err != nil {
@@ -67,6 +104,14 @@ func QueryQuotePrice(username string, symbol string, trans string) (quote int, e
 	quote, err = strconv.Atoi(priceStr)
 	if err != nil {
 		return
+	}
+
+	// set cache
+	queryStruct.Qtype = models.CacheSet
+	queryStruct.Value = priceStr
+	err = queryRedisKey(cache, queryStruct)
+	if err != nil {
+		log.Println(err.Error())
 	}
 
 	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)

@@ -11,21 +11,22 @@ import (
 	"strconv"
 	"time"
 
+	"transaction_service/logging"
 	"transaction_service/queries/models"
 	"transaction_service/queries/transdb"
 	"transaction_service/queries/utils"
-	//"transaction_service/triggers/triggermanager"
-	"transaction_service/logging"
 	"transaction_service/utils"
 
+	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
 	// "github.com/phayes/freeport"
 	_ "github.com/lib/pq"
 )
 
 type Env struct {
-	logger logging.Logger
-	tdb    transdb.TransactionDataStore
+	logger     logging.Logger
+	tdb        transdb.TransactionDataStore
+	quoteCache *redis.Client
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
@@ -47,13 +48,13 @@ func (env *Env) respondWithJSON(w http.ResponseWriter, code int, payload interfa
 //TODO: refactor  + test
 func (env *Env) getQuoute(w http.ResponseWriter, r *http.Request, command logging.Command) {
 	vars := mux.Vars(r)
-	price, err := dbutils.QueryQuotePrice(vars["username"], vars["symbol"], vars["trans"])
+	price, err := dbutils.QueryQuotePrice(env.quoteCache, vars["username"], vars["symbol"], vars["trans"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote for %s and %s", vars["username"], vars["symbol"])
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-	env.respondWithJSON(w, http.StatusOK, map[string]string{"price": string(price), "symbol": vars["symbol"]})
+	env.respondWithJSON(w, http.StatusOK, map[string]string{"price": strconv.Itoa(price), "symbol": vars["symbol"]})
 }
 
 //TODO: refactor
@@ -209,7 +210,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
+	quote, err := dbutils.QueryQuotePrice(env.quoteCache, username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -254,7 +255,7 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
+	quote, err := dbutils.QueryQuotePrice(env.quoteCache, username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -493,7 +494,7 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(username, symbol, trans)
+	quote, err := dbutils.QueryQuotePrice(env.quoteCache, username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -584,7 +585,7 @@ func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, comma
 	username := vars["username"]
 	trans := vars["trans"]
 
-	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(trans)
+	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(env.quoteCache, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -656,7 +657,12 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 func main() {
 	logger := logging.NewLoggerConnection()
 	tdb := transdb.NewTransactionDBConnection()
-	env := &Env{logger: logger, tdb: tdb}
+	quoteCache := transdb.NewQuoteCacheConnection()
+
+	defer tdb.DB.Close()
+	defer quoteCache.Close()
+
+	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb}
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
@@ -687,11 +693,9 @@ func main() {
 	router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
 	router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
-	router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
+	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
 
 	http.Handle("/", router)
-
-	// go triggermanager.Manage()
 
 	log.Println("Running transaction server on port: " + port)
 
