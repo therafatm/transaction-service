@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
-	// "github.com/phayes/freeport"
 	_ "github.com/lib/pq"
 )
 
@@ -591,6 +590,7 @@ func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, comma
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
+
 	env.respondWithJSON(w, http.StatusOK, rTrigs)
 }
 
