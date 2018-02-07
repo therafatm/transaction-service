@@ -2,7 +2,8 @@ FROM golang:latest
 
 EXPOSE 8888
 
-COPY . /go/src/transaction_service
+COPY common /go/src/common
+COPY transaction_service /go/src/transaction_service
 WORKDIR /go/src/transaction_service
 
 

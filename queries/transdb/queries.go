@@ -3,8 +3,8 @@ package transdb
 import (
 	"database/sql"
 
-	"transaction_service/logging"
-	"transaction_service/queries/models"
+	"common/logging"
+	"common/models"
 )
 
 type TransactionDB struct {

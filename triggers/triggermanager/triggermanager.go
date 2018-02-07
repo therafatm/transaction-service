@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"transaction_service/logging"
+	"common/logging"
 	"transaction_service/queries/transdb"
 
 	"github.com/go-redis/redis"

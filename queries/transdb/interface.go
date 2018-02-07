@@ -1,9 +1,9 @@
 package transdb
 
 import (
+	"common/models"
 	"database/sql"
 	"time"
-	"transaction_service/queries/models"
 
 	"github.com/go-redis/redis"
 )

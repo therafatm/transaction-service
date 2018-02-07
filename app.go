@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"time"
 
-	"transaction_service/logging"
-	"transaction_service/queries/models"
+	"common/logging"
+	"common/models"
+	"common/utils"
 	"transaction_service/queries/transdb"
 	"transaction_service/queries/utils"
-	"transaction_service/utils"
 
 	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"

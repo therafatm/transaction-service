@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"transaction_service/queries/models"
+	"common/models"
 
 	"github.com/go-redis/redis"
 )

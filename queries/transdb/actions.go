@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"transaction_service/logging"
-	"transaction_service/queries/models"
+	"common/logging"
+	"common/models"
+	"common/utils"
 	"transaction_service/queries/utils"
-	"transaction_service/utils"
 
 	"github.com/go-redis/redis"
 )
@@ -36,11 +36,11 @@ func NewQuoteCacheConnection() (cache *redis.Client) {
 }
 
 func NewTransactionDBConnection() (tdb *TransactionDB) {
-	host := os.Getenv("POSTGRES_HOST")
+	host := os.Getenv("TRANS_DB_HOST")
 	user := os.Getenv("POSTGRES_USER")
 	password := os.Getenv("POSTGRES_PASSWORD")
-	dbname := os.Getenv("POSTGRES_DB")
-	port := os.Getenv("POSTGRES_PORT")
+	dbname := os.Getenv("TRANS_DB")
+	port := os.Getenv("TRANS_DB_PORT")
 
 	config := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 
