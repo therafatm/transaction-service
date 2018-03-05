@@ -18,7 +18,7 @@ import (
 )
 
 func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
-	key := fmt.Sprintf("%s:%s", queryStruct.Username, queryStruct.Symbol)
+	key := fmt.Sprintf("%s", queryStruct.Symbol)
 	var err error
 
 	if queryStruct.Qtype == models.CacheGet {
@@ -30,7 +30,7 @@ func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
 			queryStruct.Value = val
 		}
 	} else {
-		_, err = cache.Set(key, queryStruct.Value, time.Minute*1).Result()
+		_, err = cache.Set(key, queryStruct.Value, time.Second*50).Result()
 	}
 
 	return err
