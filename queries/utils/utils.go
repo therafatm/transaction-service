@@ -8,11 +8,11 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"seng468/src/common/logging"
 	"strconv"
 	"strings"
 	"time"
 
+	"common/logging"
 	"common/models"
 
 	"github.com/go-redis/redis"
@@ -115,6 +115,6 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 		log.Println(err.Error())
 	}
 
-	logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
+	logger.LogQuoteServ(queryStruct, trans)
 	return
 }
