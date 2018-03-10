@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"io/ioutil"
 
 	"common/logging"
 	"common/models"
@@ -658,9 +659,13 @@ func main() {
 	logger := logging.NewLoggerConnection()
 	tdb := transdb.NewTransactionDBConnection()
 	quoteCache := transdb.NewQuoteCacheConnection()
+	tdb.DB.SetMaxOpenConns(300)
 
 	defer tdb.DB.Close()
 	defer quoteCache.Close()
+
+	log.SetFlags(0)
+	log.SetOutput(ioutil.Discard)
 
 	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb}
 
