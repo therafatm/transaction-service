@@ -18,6 +18,10 @@ import (
 	"github.com/go-redis/redis"
 )
 
+func getUnixTimestamp() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
+}
+
 func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
 	key := fmt.Sprintf("%s", queryStruct.Symbol)
 	var err error
@@ -78,7 +82,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string, symbol string, trans string) (quote int, err error) {
 	var body string
 
-	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet, CrytpoKey: ""}
+	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet, CrytpoKey: "", QuoteTimestamp: ""}
 	err = queryRedisKey(cache, queryStruct)
 
 	if err == nil {
@@ -116,6 +120,9 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 	}
 
 	queryStruct.CrytpoKey = split[4]
+	quoteTimestamp := int(getUnixTimestamp())
+	queryStruct.QuoteTimestamp = strconv.Itoa(quoteTimestamp)
+
 	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
 	logger.LogQuoteServ(queryStruct, trans)
 	return
