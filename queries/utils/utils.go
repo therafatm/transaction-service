@@ -78,7 +78,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string, symbol string, trans string) (quote int, err error) {
 	var body string
 
-	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet}
+	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet, CrytpoKey: ""}
 	err = queryRedisKey(cache, queryStruct)
 
 	if err == nil {
@@ -115,6 +115,8 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 		log.Println(err.Error())
 	}
 
+	queryStruct.CrytpoKey = split[4]
+	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
 	logger.LogQuoteServ(queryStruct, trans)
 	return
 }
