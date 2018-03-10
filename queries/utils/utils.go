@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"common/logging"
 	"common/models"
 
 	"github.com/go-redis/redis"
@@ -74,7 +75,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 	return
 }
 
-func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans string) (quote int, err error) {
+func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string, symbol string, trans string) (quote int, err error) {
 	var body string
 
 	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet}
@@ -114,6 +115,6 @@ func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans 
 		log.Println(err.Error())
 	}
 
-	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
+	logger.LogQuoteServ(queryStruct, trans)
 	return
 }

@@ -305,7 +305,7 @@ func (tdb *TransactionDB) QueryAndExecuteCurrentTriggers(quoteCache *redis.Clien
 	for rows.Next() {
 		trig, err := ScanTriggerRows(rows)
 		if err == nil {
-			quote, err := dbutils.QueryQuotePrice(quoteCache, trig.Username, trig.Symbol, trans)
+			quote, err := dbutils.QueryQuotePrice(quoteCache, tdb.logger, trig.Username, trig.Symbol, trans)
 			if err == nil {
 				if trig.Order == models.BUY {
 					if quote <= trig.TriggerPrice {
