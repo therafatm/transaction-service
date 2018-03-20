@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
-	"io/ioutil"
 
 	"common/logging"
 	"common/models"
@@ -690,16 +690,87 @@ func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command l
 	return
 }
 
+func validateURLParams(r *http.Request) (err error) {
+	vars := mux.Vars(r)
+
+	username, ok := vars["username"]
+	if ok != false {
+		if len(username) <= 0 {
+			return errors.New("Invalid username\n")
+		}
+	}
+
+	stock, ok := vars["stock"]
+	if ok != false {
+		// v, err := strconv.Atoi(stock)
+		if len(stock) <= 0 || len(stock) > 3 {
+			return errors.New("Invalid stock\n")
+		}
+		// allows stocks to be numbers
+		// could add check for stocks not being number values
+	}
+
+	amount, ok := vars["amount"]
+	if ok != false {
+		floatAmount, err := strconv.ParseFloat(amount, 64)
+		if floatAmount <= 0 || err != nil {
+			return errors.New("Invalid amount\n")
+		}
+	}
+
+	money, ok := vars["money"]
+	if ok != false {
+		floatMoney, err := strconv.ParseFloat(money, 64)
+		if floatMoney <= 0 || err != nil {
+			return errors.New("Invalid money\n")
+		}
+	}
+
+	triggerPrice, ok := vars["triggerPrice"]
+	if ok != false {
+		floatTriggerPrice, err := strconv.ParseFloat(triggerPrice, 64)
+		if floatTriggerPrice <= 0 || err != nil {
+			return errors.New("Invalid trigger price\n")
+		}
+	}
+
+	shares, ok := vars["shares"]
+	if ok != false {
+		intShares, err := strconv.Atoi(shares)
+		if intShares <= 0 || err != nil {
+			return errors.New("Invalid number of shares\n")
+		}
+	}
+
+	orderType, ok := vars["orderType"]
+	if ok != false {
+		if len(orderType) <= 0 {
+			return errors.New("Invalid order type\n")
+		}
+	}
+
+	totalValue, ok := vars["totalValue"]
+	if ok != false {
+		floatTotalValue, err := strconv.ParseFloat(totalValue, 64)
+		if floatTotalValue <= 0 || err != nil {
+			return errors.New("Invalid totalValue\n")
+		}
+	}
+
+	err = nil
+	return err
+}
+
 func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		env.logger.LogCommand(command, mux.Vars(r))
 		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
-		// err := validateURLParams(r)
-		// if err != nil {
-		// 	utils.LogErr(err)
-		// 	http.Error(w, err.Error(), http.StatusBadRequest)
-		// 	return
-		// }
+		err := validateURLParams(r)
+		if err != nil {
+			utils.LogErr(err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		log.Println(l)
 		fn(w, r, command)

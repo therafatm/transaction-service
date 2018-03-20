@@ -63,7 +63,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	addr := strings.Join([]string{host, port}, ":")
-	conn, err := net.DialTimeout("tcp", addr, time.Second*10)
+	conn, err := net.DialTimeout("tcp", addr, time.Second*5)
 	if err != nil {
 		return queryString, err
 	}
