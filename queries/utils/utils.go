@@ -87,8 +87,8 @@ func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans 
 		return
 	}
 
-	_, prod := os.LookupEnv("PROD")
-	if prod {
+	prod, _ := os.LookupEnv("PROD")
+	if prod == "true" {
 		body, err = QueryQuoteTCP(cache, username, symbol)
 	} else {
 		body, err = QueryQuoteHTTP(cache, username, symbol)

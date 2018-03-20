@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"os"
@@ -26,9 +27,16 @@ type Env struct {
 	logger     logging.Logger
 	tdb        transdb.TransactionDataStore
 	quoteCache *redis.Client
+	databases  (map[uint32]transdb.TransactionDataStore)
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
+
+func hash(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
 
 func (env *Env) respondWithError(w http.ResponseWriter, code int, err error, message string, command logging.Command, vars map[string]string) {
 	env.logger.LogErrorEvent(command, vars, message)
@@ -81,12 +89,18 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 		return
 	}
 
-	user, err := env.tdb.QueryUser(username)
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
+
+	user, err := tdb.QueryUser(username)
+
+	fmt.Printf("User added to Database %s", strconv.Itoa(int(databaseno)))
 
 	if err != nil && err == sql.ErrNoRows {
 		//user no exist
 		newUser := models.User{Username: username, Money: money}
-		_, err := env.tdb.InsertUser(newUser)
+		_, err := tdb.InsertUser(newUser)
 		if err != nil {
 			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
@@ -100,7 +114,7 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 	} else {
 		// user exists
 		user.Money += money
-		_, err = env.tdb.UpdateUser(user)
+		_, err = tdb.UpdateUser(user)
 
 		if err != nil {
 			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -108,7 +122,7 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 		}
 	}
 
-	user, err = env.tdb.QueryUser(username)
+	user, err = tdb.QueryUser(username)
 	if err != nil {
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -121,7 +135,11 @@ func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command
 	vars := mux.Vars(r)
 	username := vars["username"]
 
-	_, err := env.tdb.QueryUser(username)
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
+
+	_, err := tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -132,7 +150,7 @@ func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command
 		return
 	}
 
-	balance, err := env.tdb.QueryUserAvailableBalance(username)
+	balance, err := tdb.QueryUserAvailableBalance(username)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -150,7 +168,11 @@ func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command 
 	username := vars["username"]
 	symbol := vars["symbol"]
 
-	_, err := env.tdb.QueryUser(username)
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
+
+	_, err := tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -161,7 +183,7 @@ func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command 
 		return
 	}
 
-	balance, err := env.tdb.QueryUserAvailableShares(username, symbol)
+	balance, err := tdb.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -179,6 +201,9 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -187,7 +212,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 		return
 	}
 
-	balance, err := env.tdb.QueryUserAvailableBalance(username)
+	balance, err := tdb.QueryUserAvailableBalance(username)
 
 	// check that user exists and has enough money
 	if err != nil {
@@ -221,14 +246,14 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
-	rid, err := env.tdb.AddReservation(nil, reservation)
+	rid, err := tdb.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	reserv, err := env.tdb.QueryReservation(rid)
+	reserv, err := tdb.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -238,7 +263,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	env.respondWithJSON(w, http.StatusOK, reserv)
 
 	// remove reservation if not bought within 60 seconds
-	go env.tdb.RemoveOrder(rid, 60)
+	go tdb.RemoveOrder(rid, 60)
 }
 
 func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command logging.Command) {
@@ -246,6 +271,9 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -263,7 +291,7 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 
 	sharesToSell := sellAmount / quote
 
-	availableShares, err := env.tdb.QueryUserAvailableShares(username, symbol)
+	availableShares, err := tdb.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error querying available shares for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -282,14 +310,14 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
-	rid, err := env.tdb.AddReservation(nil, reservation)
+	rid, err := tdb.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting sell order."
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	reserv, err := env.tdb.QueryReservation(rid)
+	reserv, err := tdb.QueryReservation(rid)
 	if err != nil {
 		errMsg := "Error reservation not found after insert."
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -299,15 +327,18 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	env.respondWithJSON(w, http.StatusOK, reserv)
 
 	// remove reservation if not bought within 60 seconds
-	go env.tdb.RemoveOrder(rid, 60)
+	go tdb.RemoveOrder(rid, 60)
 }
 
 func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logging.Command) {
 	var vars = mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
 
-	res, err := env.tdb.QueryLastReservation(username, orderType)
+	tdb := env.databases[databaseno]
+
+	res, err := tdb.QueryLastReservation(username, orderType)
 	if err != nil && err == sql.ErrNoRows {
 		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -322,11 +353,11 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 	var amount int
 
 	if orderType == models.BUY {
-		balance, err = env.tdb.QueryUserAvailableBalance(username)
+		balance, err = tdb.QueryUserAvailableBalance(username)
 		amount = res.Amount
 
 	} else {
-		balance, err = env.tdb.QueryUserAvailableShares(username, res.Symbol)
+		balance, err = tdb.QueryUserAvailableShares(username, res.Symbol)
 		amount = res.Shares
 	}
 
@@ -350,14 +381,14 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 		return
 	}
 
-	err = env.tdb.CommitBuySellTransaction(res, trans)
+	err = tdb.CommitBuySellTransaction(res, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error commiting  %s order.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	stock, err := env.tdb.QueryUserStock(res.Username, res.Symbol)
+	stock, err := tdb.QueryUserStock(res.Username, res.Symbol)
 	if err != nil {
 		errMsg := "Error could not find updated stock."
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -378,7 +409,11 @@ func (env *Env) commitSell(w http.ResponseWriter, r *http.Request, command loggi
 func (env *Env) cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logging.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-	res, err := env.tdb.RemoveLastOrderTypeReservation(username, orderType)
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
+
+	res, err := tdb.RemoveLastOrderTypeReservation(username, orderType)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error deleting last %s reservation.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -401,6 +436,9 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -409,7 +447,7 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 		return
 	}
 
-	trig, err := env.tdb.QueryUserTrigger(username, symbol, models.BUY)
+	trig, err := tdb.QueryUserTrigger(username, symbol, models.BUY)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -422,7 +460,7 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 		return
 	}
 
-	balance, err := env.tdb.QueryUserAvailableBalance(username)
+	balance, err := tdb.QueryUserAvailableBalance(username)
 	// check that user exists and has enough money
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -443,14 +481,14 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 		return
 	}
 
-	tid, err := env.tdb.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount, trans)
+	tid, err := tdb.CommitSetOrderTransaction(username, symbol, models.BUY, buyAmount, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting buy amount for %s: %s", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err = env.tdb.QueryStockTrigger(tid)
+	trig, err = tdb.QueryStockTrigger(tid)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error trigger %d not found after insert.", tid)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -465,6 +503,9 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -473,14 +514,14 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 		return
 	}
 
-	availableShares, err := env.tdb.QueryUserAvailableShares(username, symbol)
+	availableShares, err := tdb.QueryUserAvailableShares(username, symbol)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err := env.tdb.QueryUserTrigger(username, symbol, models.SELL)
+	trig, err := tdb.QueryUserTrigger(username, symbol, models.SELL)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -509,14 +550,14 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 		return
 	}
 
-	tid, err := env.tdb.CommitSetOrderTransaction(username, symbol, models.SELL, sellShares, trans)
+	tid, err := tdb.CommitSetOrderTransaction(username, symbol, models.SELL, sellShares, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error setting %s amount for %s: %s", models.SELL, username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err = env.tdb.QueryStockTrigger(tid)
+	trig, err = tdb.QueryStockTrigger(tid)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error trigger %d not found after insert.", tid)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -531,13 +572,17 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 	username := vars["username"]
 	symbol := vars["symbol"]
 	triggerPrice, err := strconv.Atoi(vars["triggerPrice"])
+	databaseno := hash(username) % 3
+
+	tdb := env.databases[databaseno]
+
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["triggerPrice"])
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	trig, err := env.tdb.QueryUserTrigger(username, symbol, orderType)
+	trig, err := tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil && err != sql.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -553,7 +598,7 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 	trig.TriggerPrice = triggerPrice
 	trig.Executable = true
 
-	err = env.tdb.UpdateTrigger(trig)
+	err = tdb.UpdateTrigger(trig)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to update %s trigger for %s and %s", orderType, username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -561,7 +606,7 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 	}
 
 	//For err checking consider removing
-	trig, err = env.tdb.QueryStockTrigger(trig.ID)
+	trig, err = tdb.QueryStockTrigger(trig.ID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to query updated %s trigger for %s and %s", orderType, username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -583,8 +628,11 @@ func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, comma
 	vars := mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
 
-	rTrigs, err := env.tdb.QueryAndExecuteCurrentTriggers(env.quoteCache, trans)
+	tdb := env.databases[databaseno]
+
+	rTrigs, err := tdb.QueryAndExecuteCurrentTriggers(env.quoteCache, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to execute triggers for %s.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -599,8 +647,11 @@ func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType 
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
+	databaseno := hash(username) % 3
 
-	trig, err := env.tdb.QueryUserTrigger(username, symbol, orderType)
+	tdb := env.databases[databaseno]
+
+	trig, err := tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errMsg := fmt.Sprintf("Error no %s trigger exists for %s and %s.", orderType, username, symbol)
@@ -612,7 +663,7 @@ func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType 
 		return
 	}
 
-	trig, err = env.tdb.CancelOrderTransaction(trig, trans)
+	trig, err = tdb.CancelOrderTransaction(trig, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to cancel %s trigger for %s and %s", orderType, username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -656,42 +707,53 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 
 func main() {
 	logger := logging.NewLoggerConnection()
-	tdb := transdb.NewTransactionDBConnection()
+
+	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
+	databases := make(map[uint32]transdb.TransactionDataStore)
+	defer tdb.DB.Close()
+	databases[0] = tdb
+
+	tdb2 := transdb.NewTransactionDBConnection("transdb2", "5432")
+	defer tdb2.DB.Close()
+	databases[1] = tdb2
+
+	tdb3 := transdb.NewTransactionDBConnection("transdb3", "5432")
+	defer tdb3.DB.Close()
+	databases[2] = tdb3
 	quoteCache := transdb.NewQuoteCacheConnection()
 
-	defer tdb.DB.Close()
 	defer quoteCache.Close()
 
-	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb}
+	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
 
-	router.HandleFunc("/api/clearUsers", env.logHandler(env.clearUsers, ""))
-	router.HandleFunc("/api/availableBalance/{username}/{trans}", env.logHandler(env.availableBalance, ""))
-	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", env.logHandler(env.availableShares, ""))
+	go router.HandleFunc("/api/clearUsers", env.logHandler(env.clearUsers, ""))
+	go router.HandleFunc("/api/availableBalance/{username}/{trans}", env.logHandler(env.availableBalance, ""))
+	go router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", env.logHandler(env.availableShares, ""))
 
-	router.HandleFunc("/api/add/{username}/{money}/{trans}", env.logHandler(env.addUser, logging.ADD))
-	router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", env.logHandler(env.getQuoute, logging.QUOTE))
+	go router.HandleFunc("/api/add/{username}/{money}/{trans}", env.logHandler(env.addUser, logging.ADD))
+	go router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", env.logHandler(env.getQuoute, logging.QUOTE))
 
-	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.buyOrder, logging.BUY))
-	router.HandleFunc("/api/commitBuy/{username}/{trans}", env.logHandler(env.commitBuy, logging.COMMIT_BUY))
-	router.HandleFunc("/api/cancelBuy/{username}/{trans}", env.logHandler(env.cancelBuy, logging.CANCEL_BUY))
+	go router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.buyOrder, logging.BUY))
+	go router.HandleFunc("/api/commitBuy/{username}/{trans}", env.logHandler(env.commitBuy, logging.COMMIT_BUY))
+	go router.HandleFunc("/api/cancelBuy/{username}/{trans}", env.logHandler(env.cancelBuy, logging.CANCEL_BUY))
 
-	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.sellOrder, logging.SELL))
-	router.HandleFunc("/api/commitSell/{username}/{trans}", env.logHandler(env.commitSell, logging.COMMIT_SELL))
-	router.HandleFunc("/api/cancelSell/{username}/{trans}", env.logHandler(env.cancelSell, logging.CANCEL_SELL))
+	go router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.sellOrder, logging.SELL))
+	go router.HandleFunc("/api/commitSell/{username}/{trans}", env.logHandler(env.commitSell, logging.COMMIT_SELL))
+	go router.HandleFunc("/api/cancelSell/{username}/{trans}", env.logHandler(env.cancelSell, logging.CANCEL_SELL))
 
-	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setBuyAmount, logging.SET_BUY_AMOUNT))
-	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setBuyTrigger, logging.SET_BUY_TRIGGER))
-	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetBuy, logging.CANCEL_SET_BUY))
+	go router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setBuyAmount, logging.SET_BUY_AMOUNT))
+	go router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setBuyTrigger, logging.SET_BUY_TRIGGER))
+	go router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetBuy, logging.CANCEL_SET_BUY))
 
-	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setSellAmount, logging.SET_SELL_AMOUNT))
-	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetSell, logging.CANCEL_SET_SELL))
-	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setSellTrigger, logging.SET_SELL_TRIGGER))
+	go router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setSellAmount, logging.SET_SELL_AMOUNT))
+	go router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetSell, logging.CANCEL_SET_SELL))
+	go router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setSellTrigger, logging.SET_SELL_TRIGGER))
 
-	router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
-	router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
+	go router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
+	go router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
 	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
 

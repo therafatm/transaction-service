@@ -35,13 +35,10 @@ func NewQuoteCacheConnection() (cache *redis.Client) {
 	return
 }
 
-func NewTransactionDBConnection() (tdb *TransactionDB) {
-	host := os.Getenv("TRANS_DB_HOST")
+func NewTransactionDBConnection(host string, port string) (tdb *TransactionDB) {
 	user := os.Getenv("POSTGRES_USER")
 	password := os.Getenv("POSTGRES_PASSWORD")
 	dbname := os.Getenv("TRANS_DB")
-	port := os.Getenv("TRANS_DB_PORT")
-
 	config := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 
 	db, err := sql.Open("postgres", config)
