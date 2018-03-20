@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"io/ioutil"
 
 	"common/logging"
 	"common/models"
@@ -55,7 +56,7 @@ func (env *Env) respondWithJSON(w http.ResponseWriter, code int, payload interfa
 //TODO: refactor  + test
 func (env *Env) getQuoute(w http.ResponseWriter, r *http.Request, command logging.Command) {
 	vars := mux.Vars(r)
-	price, err := dbutils.QueryQuotePrice(env.quoteCache, vars["username"], vars["symbol"], vars["trans"])
+	price, err := dbutils.QueryQuotePrice(env.quoteCache, env.logger, vars["username"], vars["symbol"], vars["trans"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote for %s and %s", vars["username"], vars["symbol"])
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -234,7 +235,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(env.quoteCache, username, symbol, trans)
+	quote, err := dbutils.QueryQuotePrice(env.quoteCache, env.logger, username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -282,7 +283,7 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(env.quoteCache, username, symbol, trans)
+	quote, err := dbutils.QueryQuotePrice(env.quoteCache, env.logger, username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -534,7 +535,7 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 		return
 	}
 
-	quote, err := dbutils.QueryQuotePrice(env.quoteCache, username, symbol, trans)
+	quote, err := dbutils.QueryQuotePrice(env.quoteCache, env.logger, username, symbol, trans)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error getting quote from quote server for %s: %s.", username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -707,6 +708,9 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 
 func main() {
 	logger := logging.NewLoggerConnection()
+	tdb := transdb.NewTransactionDBConnection()
+	quoteCache := transdb.NewQuoteCacheConnection()
+	tdb.DB.SetMaxOpenConns(300)
 
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
 	databases := make(map[uint32]transdb.TransactionDataStore)
@@ -725,6 +729,8 @@ func main() {
 	defer quoteCache.Close()
 
 	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
+	log.SetFlags(0)
+	log.SetOutput(ioutil.Discard)
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")

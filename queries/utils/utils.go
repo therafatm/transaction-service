@@ -12,13 +12,18 @@ import (
 	"strings"
 	"time"
 
+	"common/logging"
 	"common/models"
 
 	"github.com/go-redis/redis"
 )
 
+func getUnixTimestamp() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
+}
+
 func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
-	key := fmt.Sprintf("%s:%s", queryStruct.Username, queryStruct.Symbol)
+	key := fmt.Sprintf("%s", queryStruct.Symbol)
 	var err error
 
 	if queryStruct.Qtype == models.CacheGet {
@@ -30,7 +35,7 @@ func queryRedisKey(cache *redis.Client, queryStruct *models.StockQuote) error {
 			queryStruct.Value = val
 		}
 	} else {
-		_, err = cache.Set(key, queryStruct.Value, time.Minute*1).Result()
+		_, err = cache.Set(key, queryStruct.Value, time.Second*50).Result()
 	}
 
 	return err
@@ -74,10 +79,10 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 	return
 }
 
-func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans string) (quote int, err error) {
+func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string, symbol string, trans string) (quote int, err error) {
 	var body string
 
-	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet}
+	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet, CrytpoKey: "", QuoteTimestamp: ""}
 	err = queryRedisKey(cache, queryStruct)
 
 	if err == nil {
@@ -114,6 +119,11 @@ func QueryQuotePrice(cache *redis.Client, username string, symbol string, trans 
 		log.Println(err.Error())
 	}
 
+	queryStruct.CrytpoKey = split[4]
+	quoteTimestamp := int(getUnixTimestamp())
+	queryStruct.QuoteTimestamp = strconv.Itoa(quoteTimestamp)
+
 	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
+	logger.LogQuoteServ(queryStruct, trans)
 	return
 }
