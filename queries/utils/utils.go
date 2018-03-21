@@ -18,6 +18,12 @@ import (
 	"github.com/go-redis/redis"
 )
 
+
+type quoteResponse struct {
+	var response string
+	var err	error
+}
+
 func getUnixTimestamp() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
 }
@@ -59,8 +65,8 @@ func QueryQuoteHTTP(cache *redis.Client, username string, stock string) (querySt
 	return
 }
 
-func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryString string, err error) {
-	port := os.Getenv("QUOTE_SERVER_PORT")
+func QueryQuoteTCP(cache *redis.Client, username string, stock string, port string, responseChannel chan quoteResponse) {
+	// port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	addr := strings.Join([]string{host, port}, ":")
 	conn, err := net.DialTimeout("tcp", addr, time.Second*5)
@@ -76,12 +82,14 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 
 	queryString = strings.TrimSpace(string(buff))
 	log.Println(queryString)
+	
+	responseChannel <- quoteResponse{response: queryString, err: err}
 	return
 }
 
 func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string, symbol string, trans string) (quote int, err error) {
-	var body string
 
+	var body string
 	queryStruct := &models.StockQuote{Username: username, Symbol: symbol, Qtype: models.CacheGet, CrytpoKey: "", QuoteTimestamp: ""}
 	err = queryRedisKey(cache, queryStruct)
 
@@ -92,14 +100,36 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 		return
 	}
 
+	responseChannel := make(chan quoteResponse)
 	prod, _ := os.LookupEnv("PROD")
+
 	if prod == "true" {
-		body, err = QueryQuoteTCP(cache, username, symbol)
+		port := os.Getenv("QUOTE_SERVER_PORT_0")
+		go QueryQuoteTCP(cache, username, symbol, port, responseChannel)
+		port := os.Getenv("QUOTE_SERVER_PORT_1")
+		go QueryQuoteTCP(cache, username, symbol, port, responseChannel)
+		port := os.Getenv("QUOTE_SERVER_PORT_2")
+		go QueryQuoteTCP(cache, username, symbol, port, responseChannel)
+
+		count := 3
+		var res quoteResponse
+		for count < 3 {
+			res := <- responseChannel
+			if res.err == nil {
+				count++;
+			} else {
+				break;
+			}
+		}
+
+		err := res.err
+		body := res.response
 	} else {
 		body, err = QueryQuoteHTTP(cache, username, symbol)
 		fmt.Println("Printing body")
 		fmt.Printf(body)
 	}
+
 	if err != nil {
 		return
 	}
@@ -123,7 +153,6 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 	quoteTimestamp := int(getUnixTimestamp())
 	queryStruct.QuoteTimestamp = strconv.Itoa(quoteTimestamp)
 
-	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
 	logger.LogQuoteServ(queryStruct, trans)
 	return
 }

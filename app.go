@@ -782,6 +782,7 @@ func main() {
 	tdb := transdb.NewTransactionDBConnection()
 	quoteCache := transdb.NewQuoteCacheConnection()
 	tdb.DB.SetMaxOpenConns(300)
+	tdb.DB.SetMaxIdleConns(200)
 
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
 	databases := make(map[uint32]transdb.TransactionDataStore)
