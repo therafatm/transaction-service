@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -657,7 +658,16 @@ func (env *Env) cancelSetSell(w http.ResponseWriter, r *http.Request, command lo
 }
 
 func (env *Env) dumplog(w http.ResponseWriter, r *http.Request, command logging.Command) {
-	return
+	vars := mux.Vars(r)
+	filename := vars["filename"]
+	env.logger.SendDumpLog(filename, "")
+}
+
+func (env *Env) dumplogUser(w http.ResponseWriter, r *http.Request, command logging.Command) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	filename := url.PathUnescape(vars["filename"])
+	env.logger.SendDumpLog(filename, username)
 }
 
 func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command logging.Command) {
@@ -724,6 +734,7 @@ func main() {
 	go router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setSellTrigger, logging.SET_SELL_TRIGGER))
 
 	go router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
+	go router.HandleFunc("/api/dumplog/{filename}/{username}/{trans}", env.logHandler(env.dumplogUser, logging.DUMPLOG))	
 	go router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
 	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
