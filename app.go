@@ -11,7 +11,7 @@ import (
 	"os"
 	"strconv"
 	"time"
-	"io/ioutil"
+	//"io/ioutil"
 
 	"common/logging"
 	"common/models"
@@ -28,15 +28,15 @@ type Env struct {
 	logger     logging.Logger
 	tdb        transdb.TransactionDataStore
 	quoteCache *redis.Client
-	databases  (map[uint32]transdb.TransactionDataStore)
+	databases  (map[int]transdb.TransactionDataStore)
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
 
-func hash(s string) uint32 {
+func hash(s string) int {
 	h := fnv.New32a()
 	h.Write([]byte(s))
-	return h.Sum32()
+	return int(h.Sum32())
 }
 
 func (env *Env) respondWithError(w http.ResponseWriter, code int, err error, message string, command logging.Command, vars map[string]string) {
@@ -90,13 +90,9 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 		return
 	}
 
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	user, err := tdb.QueryUser(username)
-
-	fmt.Printf("User added to Database %s", strconv.Itoa(int(databaseno)))
 
 	if err != nil && err == sql.ErrNoRows {
 		//user no exist
@@ -136,9 +132,7 @@ func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command
 	vars := mux.Vars(r)
 	username := vars["username"]
 
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	_, err := tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
@@ -169,9 +163,7 @@ func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command 
 	username := vars["username"]
 	symbol := vars["symbol"]
 
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	_, err := tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
@@ -202,9 +194,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -272,9 +262,7 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -335,9 +323,7 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 	var vars = mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	res, err := tdb.QueryLastReservation(username, orderType)
 	if err != nil && err == sql.ErrNoRows {
@@ -410,9 +396,7 @@ func (env *Env) commitSell(w http.ResponseWriter, r *http.Request, command loggi
 func (env *Env) cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logging.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	res, err := tdb.RemoveLastOrderTypeReservation(username, orderType)
 	if err != nil {
@@ -437,9 +421,7 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -504,9 +486,7 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -573,9 +553,7 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 	username := vars["username"]
 	symbol := vars["symbol"]
 	triggerPrice, err := strconv.Atoi(vars["triggerPrice"])
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["triggerPrice"])
@@ -629,9 +607,7 @@ func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, comma
 	vars := mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	rTrigs, err := tdb.QueryAndExecuteCurrentTriggers(env.quoteCache, trans)
 	if err != nil {
@@ -648,9 +624,7 @@ func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType 
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	databaseno := hash(username) % 3
-
-	tdb := env.databases[databaseno]
+	tdb := env.databases[hash(username) % len(env.databases)]
 
 	trig, err := tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil {
@@ -708,29 +682,20 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 
 func main() {
 	logger := logging.NewLoggerConnection()
-	tdb := transdb.NewTransactionDBConnection()
 	quoteCache := transdb.NewQuoteCacheConnection()
-	tdb.DB.SetMaxOpenConns(300)
-
-	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
-	databases := make(map[uint32]transdb.TransactionDataStore)
-	defer tdb.DB.Close()
-	databases[0] = tdb
-
-	tdb2 := transdb.NewTransactionDBConnection("transdb2", "5432")
-	defer tdb2.DB.Close()
-	databases[1] = tdb2
-
-	tdb3 := transdb.NewTransactionDBConnection("transdb3", "5432")
-	defer tdb3.DB.Close()
-	databases[2] = tdb3
-	quoteCache := transdb.NewQuoteCacheConnection()
-
 	defer quoteCache.Close()
 
+
+	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
+	tdb.DB.SetMaxOpenConns(300)
+	databases := make(map[int]transdb.TransactionDataStore)
+
+	defer tdb.DB.Close()
+	databases[0] = tdb
+	
 	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
 	log.SetFlags(0)
-	log.SetOutput(ioutil.Discard)
+	//log.SetOutput(ioutil.Discard)
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
