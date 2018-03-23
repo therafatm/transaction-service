@@ -36,8 +36,8 @@ func NewQuoteCacheConnection() (cache *redis.Client) {
 }
 
 func NewTransactionDBConnection(host string, port string) (tdb *TransactionDB) {
-	user := os.Getenv("POSTGRES_USER")
-	password := os.Getenv("POSTGRES_PASSWORD")
+	user := os.Getenv("PGUSER")
+	password := os.Getenv("PGPASSWORD")
 	dbname := os.Getenv("TRANS_DB")
 	config := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 
