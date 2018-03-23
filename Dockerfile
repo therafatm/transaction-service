@@ -1,8 +1,12 @@
-FROM golang:latest
+FROM golang:alpine
+
+RUN apk add --update --no-cache curl \
+        curl-dev \
+        libcurl \
+        git \
+        openssl
 
 EXPOSE 8888
-
-RUN apt-get update -y && apt-get install -y libxml2-dev
 
 ENV WAITFORIT_VERSION="v2.2.0"
 RUN curl -o /usr/local/bin/waitforit -sSL https://github.com/maxcnunes/waitforit/releases/download/$WAITFORIT_VERSION/waitforit-linux_amd64 && \
