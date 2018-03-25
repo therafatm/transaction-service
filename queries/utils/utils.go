@@ -64,17 +64,20 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryStr
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	addr := strings.Join([]string{host, port}, ":")
 	conn, err := net.DialTimeout("tcp", addr, time.Second*10)
-	conn.SetReadDeadline(time.Second)
-	for(e,ok := err.(net.Error); ok || e.Timeout()){
-		conn.Close()	
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	e, ok := err.(net.Error)
+	for !ok || e.Timeout() {
+		conn.Close()
 		conn, err := net.DialTimeout("tcp", addr, time.Second*10)
-		conn.SetReadDeadline(time.Second)
+		conn.SetReadDeadline(time.Now().Add(time.Second))
+		e, ok = err.(net.Error)
+
 	}
 	if err != nil {
 		// This was an error, but not a timeout
 		return queryString, err
 	}
-	
+
 	defer conn.Close()
 
 	msg := stock + "," + username + "\n"
