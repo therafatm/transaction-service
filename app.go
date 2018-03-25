@@ -659,6 +659,10 @@ func (env *Env) dumplog(w http.ResponseWriter, r *http.Request, command logging.
 	vars := mux.Vars(r)
 	filename, _ := url.PathUnescape(vars["filename"])
 	env.logger.SendDumpLog(filename, "")
+	var m map[string]string
+	m = make(map[string]string)
+	m["filename"] = filename
+	env.respondWithJSON(w, http.StatusOK, m)
 }
 
 func (env *Env) dumplogUser(w http.ResponseWriter, r *http.Request, command logging.Command) {
@@ -666,6 +670,10 @@ func (env *Env) dumplogUser(w http.ResponseWriter, r *http.Request, command logg
 	username := vars["username"]
 	filename, _ := url.PathUnescape(vars["filename"])
 	env.logger.SendDumpLog(filename, username)
+	var m map[string]string
+	m = make(map[string]string)
+	m["filename"] = filename
+	env.respondWithJSON(w, http.StatusOK, m)
 }
 
 func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command logging.Command) {
