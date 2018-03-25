@@ -1,6 +1,9 @@
 package main
 
 import (
+	"common/logging"
+	"common/models"
+	"common/utils"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,9 +15,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-	"common/logging"
-	"common/models"
-	"common/utils"
 	"transaction_service/queries/transdb"
 	"transaction_service/queries/utils"
 
@@ -89,7 +89,7 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 		return
 	}
 
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	user, err := tdb.QueryUser(username)
 
@@ -131,7 +131,7 @@ func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command
 	vars := mux.Vars(r)
 	username := vars["username"]
 
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	_, err := tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
@@ -162,7 +162,7 @@ func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command 
 	username := vars["username"]
 	symbol := vars["symbol"]
 
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	_, err := tdb.QueryUser(username)
 	if err != nil && err == sql.ErrNoRows {
@@ -193,7 +193,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -261,7 +261,7 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -322,7 +322,7 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 	var vars = mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	res, err := tdb.QueryLastReservation(username, orderType)
 	if err != nil && err == sql.ErrNoRows {
@@ -395,7 +395,7 @@ func (env *Env) commitSell(w http.ResponseWriter, r *http.Request, command loggi
 func (env *Env) cancelOrder(w http.ResponseWriter, r *http.Request, orderType models.OrderType, command logging.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	res, err := tdb.RemoveLastOrderTypeReservation(username, orderType)
 	if err != nil {
@@ -420,7 +420,7 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -485,7 +485,7 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
@@ -552,7 +552,7 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 	username := vars["username"]
 	symbol := vars["symbol"]
 	triggerPrice, err := strconv.Atoi(vars["triggerPrice"])
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["triggerPrice"])
@@ -606,7 +606,7 @@ func (env *Env) executeTriggerTest(w http.ResponseWriter, r *http.Request, comma
 	vars := mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	rTrigs, err := tdb.QueryAndExecuteCurrentTriggers(env.quoteCache, trans)
 	if err != nil {
@@ -623,7 +623,7 @@ func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType 
 	username := vars["username"]
 	symbol := vars["symbol"]
 	trans := vars["trans"]
-	tdb := env.databases[hash(username) % len(env.databases)]
+	tdb := env.databases[hash(username)%len(env.databases)]
 
 	trig, err := tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil {
@@ -759,6 +759,7 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 		if err != nil {
 			utils.LogErr(err, "Url params invalid.")
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			env.logger.LogErrorEvent(command, mux.Vars(r), "URL param validation failed.")
 			return
 		}
 
@@ -772,14 +773,13 @@ func main() {
 	quoteCache := transdb.NewQuoteCacheConnection()
 	defer quoteCache.Close()
 
-
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
 	tdb.DB.SetMaxOpenConns(300)
 	databases := make(map[int]transdb.TransactionDataStore)
 
 	defer tdb.DB.Close()
 	databases[0] = tdb
-	
+
 	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
 	log.SetFlags(0)
 	//log.SetOutput(ioutil.Discard)
@@ -811,7 +811,7 @@ func main() {
 	go router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setSellTrigger, logging.SET_SELL_TRIGGER))
 
 	go router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
-	go router.HandleFunc("/api/dumplog/{filename}/{username}/{trans}", env.logHandler(env.dumplogUser, logging.DUMPLOG))	
+	go router.HandleFunc("/api/dumplog/{filename}/{username}/{trans}", env.logHandler(env.dumplogUser, logging.DUMPLOG))
 	go router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
 	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
