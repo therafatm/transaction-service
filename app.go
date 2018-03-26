@@ -567,7 +567,7 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 		return
 	}
 
-	if err != sql.ErrNoRows && trig.Executable {
+	if err != nil && err != sql.ErrNoRows && trig.Executable {
 		errMsg := fmt.Sprintf("Error a %s trigger already exists for %s and %s. Please cancel before proceeding.", orderType, username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -775,6 +775,7 @@ func main() {
 
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
 	tdb.DB.SetMaxOpenConns(300)
+	tdb.DB.SetMaxIdleConns(250)
 	databases := make(map[int]transdb.TransactionDataStore)
 
 	defer tdb.DB.Close()
