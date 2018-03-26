@@ -130,11 +130,9 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 		log.Println(err.Error())
 	}
 
+	queryStruct.QuoteTimestamp = split[3]
 	queryStruct.CrytpoKey = split[4]
-	quoteTimestamp := int(getUnixTimestamp())
-	queryStruct.QuoteTimestamp = strconv.Itoa(quoteTimestamp)
 
-	//logger.LogQuoteServ(username, split[0], split[1], split[3], split[4], trans)
 	logger.LogQuoteServ(queryStruct, trans)
 	fmt.Println(queryStruct)
 	return
