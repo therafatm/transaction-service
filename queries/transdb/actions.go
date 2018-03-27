@@ -292,11 +292,11 @@ func (tdb *TransactionDB) QueryAndExecuteCurrentTriggers(quoteCache *redis.Clien
 	query := `SELECT tid, username, symbol, type, amount, trigger_price, executable, time FROM triggers WHERE executable=TRUE`
 
 	rows, err := tdb.DB.Query(query)
-	defer rows.Close()
-
 	if err != nil {
 		return
 	}
+
+	defer rows.Close()
 
 	for rows.Next() {
 		trig, err := ScanTriggerRows(rows)
