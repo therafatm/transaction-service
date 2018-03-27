@@ -195,7 +195,6 @@ func (tdb *TransactionDB) UpdateUserStockTriggerPrice(username string, stock str
 func (tdb *TransactionDB) CommitSetOrderTransaction(username string, symbol string, orderType models.OrderType, amount int, trans string) (tid int64, err error) {
 	tx, err := tdb.DB.Begin()
 	if err != nil {
-		tx.Rollback()
 		return
 	}
 
