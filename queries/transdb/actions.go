@@ -195,7 +195,6 @@ func (tdb *TransactionDB) UpdateUserStockTriggerPrice(username string, stock str
 func (tdb *TransactionDB) CommitSetOrderTransaction(username string, symbol string, orderType models.OrderType, amount int, trans string) (tid int64, err error) {
 	tx, err := tdb.DB.Begin()
 	if err != nil {
-		tx.Rollback()
 		return
 	}
 
@@ -229,7 +228,6 @@ func (tdb *TransactionDB) CommitSetOrderTransaction(username string, symbol stri
 func (tdb *TransactionDB) CancelOrderTransaction(trig models.Trigger, trans string) (rtrig models.Trigger, err error) {
 	tx, err := tdb.DB.Begin()
 	if err != nil {
-		tx.Rollback()
 		return
 	}
 
@@ -297,6 +295,7 @@ func (tdb *TransactionDB) QueryAndExecuteCurrentTriggers(quoteCache *redis.Clien
 	if err != nil {
 		return
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {

@@ -764,6 +764,7 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 		}
 
 		log.Println(l)
+		w.Header().Set("Connection", "close")
 		fn(w, r, command)
 	}
 }
@@ -774,11 +775,11 @@ func main() {
 	defer quoteCache.Close()
 
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
+	defer tdb.DB.Close()
+
 	tdb.DB.SetMaxOpenConns(300)
 	tdb.DB.SetMaxIdleConns(250)
 	databases := make(map[int]transdb.TransactionDataStore)
-
-	defer tdb.DB.Close()
 	databases[0] = tdb
 
 	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
@@ -788,42 +789,50 @@ func main() {
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
 
-	go router.HandleFunc("/api/clearUsers", env.logHandler(env.clearUsers, ""))
-	go router.HandleFunc("/api/availableBalance/{username}/{trans}", env.logHandler(env.availableBalance, ""))
-	go router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", env.logHandler(env.availableShares, ""))
+	router.HandleFunc("/api/clearUsers", env.logHandler(env.clearUsers, ""))
+	router.HandleFunc("/api/availableBalance/{username}/{trans}", env.logHandler(env.availableBalance, ""))
+	router.HandleFunc("/api/availableShares/{username}/{symbol}/{trans}", env.logHandler(env.availableShares, ""))
 
-	go router.HandleFunc("/api/add/{username}/{money}/{trans}", env.logHandler(env.addUser, logging.ADD))
-	go router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", env.logHandler(env.getQuoute, logging.QUOTE))
+	router.HandleFunc("/api/add/{username}/{money}/{trans}", env.logHandler(env.addUser, logging.ADD))
+	router.HandleFunc("/api/getQuote/{username}/{symbol}/{trans}", env.logHandler(env.getQuoute, logging.QUOTE))
 
-	go router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.buyOrder, logging.BUY))
-	go router.HandleFunc("/api/commitBuy/{username}/{trans}", env.logHandler(env.commitBuy, logging.COMMIT_BUY))
-	go router.HandleFunc("/api/cancelBuy/{username}/{trans}", env.logHandler(env.cancelBuy, logging.CANCEL_BUY))
+	router.HandleFunc("/api/buy/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.buyOrder, logging.BUY))
+	router.HandleFunc("/api/commitBuy/{username}/{trans}", env.logHandler(env.commitBuy, logging.COMMIT_BUY))
+	router.HandleFunc("/api/cancelBuy/{username}/{trans}", env.logHandler(env.cancelBuy, logging.CANCEL_BUY))
 
-	go router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.sellOrder, logging.SELL))
-	go router.HandleFunc("/api/commitSell/{username}/{trans}", env.logHandler(env.commitSell, logging.COMMIT_SELL))
-	go router.HandleFunc("/api/cancelSell/{username}/{trans}", env.logHandler(env.cancelSell, logging.CANCEL_SELL))
+	router.HandleFunc("/api/sell/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.sellOrder, logging.SELL))
+	router.HandleFunc("/api/commitSell/{username}/{trans}", env.logHandler(env.commitSell, logging.COMMIT_SELL))
+	router.HandleFunc("/api/cancelSell/{username}/{trans}", env.logHandler(env.cancelSell, logging.CANCEL_SELL))
 
-	go router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setBuyAmount, logging.SET_BUY_AMOUNT))
-	go router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setBuyTrigger, logging.SET_BUY_TRIGGER))
-	go router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetBuy, logging.CANCEL_SET_BUY))
+	router.HandleFunc("/api/setBuyAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setBuyAmount, logging.SET_BUY_AMOUNT))
+	router.HandleFunc("/api/setBuyTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setBuyTrigger, logging.SET_BUY_TRIGGER))
+	router.HandleFunc("/api/cancelSetBuy/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetBuy, logging.CANCEL_SET_BUY))
 
-	go router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setSellAmount, logging.SET_SELL_AMOUNT))
-	go router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetSell, logging.CANCEL_SET_SELL))
-	go router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setSellTrigger, logging.SET_SELL_TRIGGER))
+	router.HandleFunc("/api/setSellAmount/{username}/{symbol}/{amount}/{trans}", env.logHandler(env.setSellAmount, logging.SET_SELL_AMOUNT))
+	router.HandleFunc("/api/cancelSetSell/{username}/{symbol}/{trans}", env.logHandler(env.cancelSetSell, logging.CANCEL_SET_SELL))
+	router.HandleFunc("/api/setSellTrigger/{username}/{symbol}/{triggerPrice}/{trans}", env.logHandler(env.setSellTrigger, logging.SET_SELL_TRIGGER))
 
-	go router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
-	go router.HandleFunc("/api/dumplog/{filename}/{username}/{trans}", env.logHandler(env.dumplogUser, logging.DUMPLOG))
-	go router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
+	router.HandleFunc("/api/dumplog/{filename}/{trans}", env.logHandler(env.dumplog, logging.DUMPLOG))
+	router.HandleFunc("/api/dumplog/{filename}/{username}/{trans}", env.logHandler(env.dumplogUser, logging.DUMPLOG))
+	router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
 	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
+	// timeoutRouter := http.TimeoutHandler(router, time.Second*5, "Request timed out!")
+	// http.Handle("/", timeoutRouter)
 
-	http.Handle("/", router)
-
-	log.Println("Running transaction server on port: " + port)
-
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatal(err)
-		panic(err)
+	server := &http.Server{
+		Handler:      router,
+		Addr:         ":" + port,
+		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  2 * time.Second,
+		IdleTimeout:  2 * time.Second,
 	}
 
+	log.Println("Running transaction server on port: " + port)
+	log.Fatal(server.ListenAndServe())
+
+	// if err := http.ListenAndServe(":"+port, nil); err != nil {
+	// 	log.Fatal(err)
+	// 	panic(err)
+	// }
 }
