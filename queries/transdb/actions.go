@@ -228,7 +228,6 @@ func (tdb *TransactionDB) CommitSetOrderTransaction(username string, symbol stri
 func (tdb *TransactionDB) CancelOrderTransaction(trig models.Trigger, trans string) (rtrig models.Trigger, err error) {
 	tx, err := tdb.DB.Begin()
 	if err != nil {
-		tx.Rollback()
 		return
 	}
 
