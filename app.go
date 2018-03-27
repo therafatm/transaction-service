@@ -774,11 +774,11 @@ func main() {
 	defer quoteCache.Close()
 
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
+	defer tdb.DB.Close()
+
 	tdb.DB.SetMaxOpenConns(300)
 	tdb.DB.SetMaxIdleConns(250)
 	databases := make(map[int]transdb.TransactionDataStore)
-
-	defer tdb.DB.Close()
 	databases[0] = tdb
 
 	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
