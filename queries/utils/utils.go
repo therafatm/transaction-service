@@ -131,7 +131,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (string, 
 		// close quoteserver connection
 		quoteServerConn.Close()
 
-		// If everything was okay then we got a response
+		// If we get a response and no errors occur
 		if err == nil {
 			// Exit the loop
 			break
@@ -144,8 +144,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (string, 
 
 		// check for a timeout
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			// do the backoff and try again
-			backoff *= 1.5
+			// backoff linearly and try again for a quote
 			log.Println("Attempt %d timeout. Waiting for %d ms", attempts, timeout/1e6)
 		} else {
 			return "Failed to read from quoteserver", errors.New("Failed to read from quoteserve")
