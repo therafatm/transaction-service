@@ -766,6 +766,10 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 		log.Println(l)
 		w.Header().Set("Connection", "close")
 		fn(w, r, command)
+		vars := mux.Vars(r)
+		if val, exist := vars["trans"]; exist {
+			env.logger.LogSystemEvent(command, "ROOT_LOG", "1", "2", val)
+		}
 	}
 }
 
