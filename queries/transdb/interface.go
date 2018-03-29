@@ -2,10 +2,10 @@ package transdb
 
 import (
 	"common/models"
-	"database/sql"
 	"time"
 
 	"github.com/go-redis/redis"
+	"github.com/jackc/pgx"
 )
 
 //TODO: think about splitting queries and actions again
@@ -19,16 +19,16 @@ type TransactionDataStore interface {
 	QueryReservation(rid int64) (res models.Reservation, err error)
 	QueryLastReservation(username string, resType models.OrderType) (res models.Reservation, err error)
 	ClearUsers() (err error)
-	InsertUser(user models.User) (res sql.Result, err error)
-	UpdateUser(user models.User) (res sql.Result, err error)
-	AddReservation(tx *sql.Tx, res models.Reservation) (rid int64, err error)
-	UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, order models.OrderType) (err error)
-	UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderType, trans string) (err error)
-	RemoveReservation(tx *sql.Tx, rid int64) (err error)
+	InsertUser(user models.User) (res pgx.CommandTag, err error)
+	UpdateUser(user models.User) (res pgx.CommandTag, err error)
+	AddReservation(tx *pgx.Tx, res models.Reservation) (rid int64, err error)
+	UpdateUserStock(tx *pgx.Tx, username string, symbol string, shares int, order models.OrderType) (err error)
+	UpdateUserMoney(tx *pgx.Tx, username string, money int, order models.OrderType, trans string) (err error)
+	RemoveReservation(tx *pgx.Tx, rid int64) (err error)
 	RemoveOrder(rid int64, timeout time.Duration)
 	RemoveLastOrderTypeReservation(username string, orderType models.OrderType) (res models.Reservation, err error)
-	SetUserOrderTypeAmount(tx *sql.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error)
-	RemoveUserStockTrigger(tx *sql.Tx, tid int64) (trig models.Trigger, err error)
+	SetUserOrderTypeAmount(tx *pgx.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error)
+	RemoveUserStockTrigger(tx *pgx.Tx, tid int64) (trig models.Trigger, err error)
 	UpdateTrigger(trig models.Trigger) (err error)
 	UpdateUserStockTriggerPrice(username string, stock string, orderType string, triggerPrice string) (err error)
 	CommitSetOrderTransaction(username string, symbol string, orderType models.OrderType, amount int, trans string) (tid int64, err error)

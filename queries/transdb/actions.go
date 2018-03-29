@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"time"
+	"strconv"
 
 	"common/logging"
 	"common/models"
@@ -13,6 +14,7 @@ import (
 	"transaction_service/queries/utils"
 
 	"github.com/go-redis/redis"
+	"github.com/jackc/pgx"
 )
 
 func NewQuoteCacheConnection() (cache *redis.Client) {
@@ -39,18 +41,34 @@ func NewTransactionDBConnection(host string, port string) (tdb *TransactionDB) {
 	user := os.Getenv("PGUSER")
 	password := os.Getenv("PGPASSWORD")
 	dbname := os.Getenv("TRANS_DB")
-	config := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
+	uport, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		utils.LogErr(err, "Error parsing port")
+		panic(err)
+	}
+	u16port := uint16(uport)
+	config := pgx.ConnConfig{
+		Host:     host,
+		Port:     u16port,
+		Database: dbname,
+		User:     user,
+		Password: password,
+	}
 
-	db, err := sql.Open("postgres", config)
+	connPoolConfig := pgx.ConnPoolConfig{
+		ConnConfig: config,
+		MaxConnections: 300,
+		AcquireTimeout: 0,
+	}
+
+	db, err := pgx.NewConnPool(connPoolConfig)
 	if err != nil {
 		utils.LogErr(err, "Error connecting to DB.")
 		panic(err)
 	}
 
 	logger := logging.NewLoggerConnection()
-
 	tdb = &TransactionDB{DB: db, logger: logger}
-
 	return
 }
 
@@ -60,21 +78,21 @@ func (tdb *TransactionDB) ClearUsers() (err error) {
 	return
 }
 
-func (tdb *TransactionDB) InsertUser(user models.User) (res sql.Result, err error) {
+func (tdb *TransactionDB) InsertUser(user models.User) (res pgx.CommandTag, err error) {
 	//add new user
 	query := "INSERT INTO users(username, money) VALUES($1,$2)"
 	res, err = tdb.DB.Exec(query, user.Username, user.Money)
 	return
 }
 
-func (tdb *TransactionDB) UpdateUser(user models.User) (res sql.Result, err error) {
+func (tdb *TransactionDB) UpdateUser(user models.User) (res pgx.CommandTag, err error) {
 	query := "UPDATE users SET money = $1 WHERE username = $2"
 	money := fmt.Sprintf("%d", user.Money)
 	res, err = tdb.DB.Exec(query, money, user.Username)
 	return
 }
 
-func (tdb *TransactionDB) AddReservation(tx *sql.Tx, res models.Reservation) (rid int64, err error) {
+func (tdb *TransactionDB) AddReservation(tx *pgx.Tx, res models.Reservation) (rid int64, err error) {
 	query := "INSERT INTO reservations(username, symbol, type, shares, amount, time) VALUES($1,$2,$3,$4,$5,$6) RETURNING rid"
 	if tx == nil {
 		err = tdb.DB.QueryRow(query, res.Username, res.Symbol, res.Order, res.Shares, res.Amount, res.Time).Scan(&rid)
@@ -84,7 +102,7 @@ func (tdb *TransactionDB) AddReservation(tx *sql.Tx, res models.Reservation) (ri
 	return
 }
 
-func (tdb *TransactionDB) UpdateUserStock(tx *sql.Tx, username string, symbol string, shares int, order models.OrderType) (err error) {
+func (tdb *TransactionDB) UpdateUserStock(tx *pgx.Tx, username string, symbol string, shares int, order models.OrderType) (err error) {
 	stock, err := tdb.QueryUserStock(username, symbol)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -107,7 +125,7 @@ func (tdb *TransactionDB) UpdateUserStock(tx *sql.Tx, username string, symbol st
 	return
 }
 
-func (tdb *TransactionDB) UpdateUserMoney(tx *sql.Tx, username string, money int, order models.OrderType, trans string) (err error) {
+func (tdb *TransactionDB) UpdateUserMoney(tx *pgx.Tx, username string, money int, order models.OrderType, trans string) (err error) {
 	user, err := tdb.QueryUser(username)
 	if err != nil {
 		return
@@ -131,7 +149,7 @@ func (tdb *TransactionDB) UpdateUserMoney(tx *sql.Tx, username string, money int
 	return
 }
 
-func (tdb *TransactionDB) RemoveReservation(tx *sql.Tx, rid int64) (err error) {
+func (tdb *TransactionDB) RemoveReservation(tx *pgx.Tx, rid int64) (err error) {
 	query := "DELETE FROM reservations WHERE rid = $1"
 	if tx == nil {
 		_, err = tdb.DB.Exec(query, rid)
@@ -159,7 +177,7 @@ func (tdb *TransactionDB) RemoveLastOrderTypeReservation(username string, orderT
 	return
 }
 
-func (tdb *TransactionDB) SetUserOrderTypeAmount(tx *sql.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
+func (tdb *TransactionDB) SetUserOrderTypeAmount(tx *pgx.Tx, username string, symbol string, orderType models.OrderType, amount int) (tid int64, err error) {
 	query := "INSERT INTO triggers(username, symbol, type, amount, trigger_price, executable, time) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING tid"
 	t := time.Now().Unix()
 	if tx != nil {
@@ -170,7 +188,7 @@ func (tdb *TransactionDB) SetUserOrderTypeAmount(tx *sql.Tx, username string, sy
 	return
 }
 
-func (tdb *TransactionDB) RemoveUserStockTrigger(tx *sql.Tx, tid int64) (trig models.Trigger, err error) {
+func (tdb *TransactionDB) RemoveUserStockTrigger(tx *pgx.Tx, tid int64) (trig models.Trigger, err error) {
 	query := `DELETE FROM triggers WHERE tid=$1 RETURNING tid, username, symbol, type, amount, trigger_price, executable, time`
 	if tx != nil {
 		trig, err = ScanTrigger(tx.QueryRow(query, tid))

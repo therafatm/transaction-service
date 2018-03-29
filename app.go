@@ -781,8 +781,6 @@ func main() {
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
 	defer tdb.DB.Close()
 
-	tdb.DB.SetMaxOpenConns(300)
-	tdb.DB.SetMaxIdleConns(250)
 	databases := make(map[int]transdb.TransactionDataStore)
 	databases[0] = tdb
 
