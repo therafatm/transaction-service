@@ -34,30 +34,31 @@
     <body>
 <script type="text/javascript">
 
+var transactionNumber = 1;
+function GetTransactionNumber(){
+    transactionNumber++; 
+    return transactionNumber-1;
+}
+
 function SendGet(path) {
-  var url = "/api/" + path;
+  var url = "http://localhost:8888/api/" + path;
+  console.log(url);
   var xhr = new XMLHttpRequest();
   xhr.open("GET", url, true);
 
   //Send the proper header information along with the request
   xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
   xhr.onload = function(){
-  	console.log("Yo")
+  	console.log(xhr.response);
   }
-}
-
-function Auth() {
-  var userID = document.getElementById("userid").value
-  var password = document.getElementById(pwd)
-  console.log("Auth")
-  console.log(userID)
+  xhr.send();
 }
 
 function Add() {
-  var userID = document.getElementById("userid").value
-  var addamount = document.getElementById(addamount)
-  var cmd = "ADD,"+userID+","+addamount
-  SendPost(cmd)
+  var userID = document.getElementById("adduser").value
+  var addamount = document.getElementById("addamount").value;
+  var cmd = "add/"+userID+"/"+addamount+"/"+GetTransactionNumber();
+  SendGet(cmd)
   console.log("Add")
 }
 
@@ -190,43 +191,25 @@ function DisplaySummary() {
             <div class="row rowbreak">
                 <div class="col box">
                     <h2>
-                        Credentials:
-                    </h2>
-                    <form>
-                        <div class="form-group">
-                            <label for="userid">
-                                User ID:
-                            </label>
-                            <input class="form-control" id="userid" placeholder="Enter user ID" type="text">
-                            </input>
-                        </div>
-                        <div class="form-group">
-                            <label for="pwd">
-                                Password:
-                            </label>
-                            <input class="form-control" id="pwd" placeholder="Enter password" type="password">
-                            </input>
-                        </div>
-                        <button class="btn-sm btn-dark" onclick="Auth()" type="button">
-                            Log In
-                        </button>
-                    </form>
-                    <br/>
-                </div>
-                <div class="col box">
-                    <h2>
                         Add:
                     </h2>
                     <form>
                         <div class="form-group">
-                            <label for="addamount">
-                                Amount:
-                            </label>
-                            <input class="form-control" id="addamount" placeholder="Enter amount" type="text">
-                            </input>
+                                <label for="adduser">
+                                    User:
+                                </label>
+                                <input class="form-control" id="adduser" placeholder="Enter username" type="text">
+                                </input>
                         </div>
-                        <button class="btn-sm btn-dark" onclick="Add()" type="button">
-                            Submit
+                        <div class="form-group">
+                                <label for="addamount">
+                                    Amount:
+                                </label>
+                                <input class="form-control" id="addamount" placeholder="Enter amount" type="text">
+                                </input>
+                        </div>
+                        <button class="btn-md btn-dark" onclick="Add()" type="button">
+                           Confirm
                         </button>
                     </form>
                     <br/>
@@ -237,14 +220,21 @@ function DisplaySummary() {
                     </h2>
                     <form>
                         <div class="form-group">
+                            <label for="quoteuser">
+                                User:
+                            </label>
+                            <input class="form-control" id="quoteuser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
                             <label for="quotestocksymbol">
                                 Stock Symbol:
                             </label>
                             <input class="form-control" id="quotestocksymbol" placeholder="Enter stock symbol" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" onclick="Quote()" type="button">
-                            button
+                        <button class="btn-md btn-dark" onclick="Quote()" type="button">
+                          Confirm 
                         </button>
                     </form>
                     <br/>
@@ -256,6 +246,13 @@ function DisplaySummary() {
                         Buy:
                     </h2>
                     <form>
+                        <div class="form-group">
+                                <label for="buyuser">
+                                    User:
+                                </label>
+                                <input class="form-control" id="buyuser" placeholder="Enter username" type="text">
+                                </input>
+                        </div>
                         <div class="form-group">
                             <label for="buystocksymbol">
                                 Stock Symbol:
@@ -270,8 +267,8 @@ function DisplaySummary() {
                             <input class="form-control" id="buyamount" placeholder="Enter amount" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" onclick="Buy()" type="button">
-                            button
+                        <button class="btn-md btn-dark" onclick="Buy()" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -281,8 +278,15 @@ function DisplaySummary() {
                         Commit Buy:
                     </h2>
                     <form>
-                        <button class="btn-sm btn-dark" onclick="CommitBuy()" type="button">
-                            button
+                        <div class="form-group">
+                                <label for="commitbuyuser">
+                                    User:
+                                </label>
+                                <input class="form-control" id="commitbuyuser" placeholder="Enter username" type="text">
+                                </input>
+                        </div>
+                        <button class="btn-md btn-dark" onclick="CommitBuy()" type="button">
+                          Confirm
                         </button>
                     </form>
                 </div>
@@ -291,8 +295,15 @@ function DisplaySummary() {
                         Cancel Buy:
                     </h2>
                     <form>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <div class="form-group">
+                                <label for="cancelbuyuser">
+                                    User:
+                                </label>
+                                <input class="form-control" id="cancelbuyuser" placeholder="Enter username" type="text">
+                                </input>
+                        </div>
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -304,6 +315,13 @@ function DisplaySummary() {
                         Sell:
                     </h2>
                     <form>
+                        <div class="form-group">
+                            <label for="selluser">
+                                User:
+                            </label>
+                            <input class="form-control" id="selluser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
                         <div class="form-group">
                             <label for="sellstocksymbol">
                                 Stock Symbol:
@@ -318,8 +336,8 @@ function DisplaySummary() {
                             <input class="form-control" id="sellamount" placeholder="Enter amount" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -329,8 +347,15 @@ function DisplaySummary() {
                         Commit Sell:
                     </h2>
                     <form>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <div class="form-group">
+                            <label for="commitselluser">
+                                User:
+                            </label>
+                            <input class="form-control" id="commitselluser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -340,8 +365,15 @@ function DisplaySummary() {
                         Cancel Sell:
                     </h2>
                     <form>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <div class="form-group">
+                            <label for="cancelselluser">
+                                User:
+                            </label>
+                            <input class="form-control" id="cancelselluser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -353,6 +385,13 @@ function DisplaySummary() {
                         Set Buy Amount:
                     </h2>
                     <form>
+                        <div class="form-group">
+                            <label for="setbuyamountuser">
+                                    User:
+                            </label>
+                            <input class="form-control" id="setbuyamountuser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
                         <div class="form-group">
                             <label for="setbuystocksymbol">
                                 Stock Symbol:
@@ -367,8 +406,8 @@ function DisplaySummary() {
                             <input class="form-control" id="setbuyamount" placeholder="Enter amount" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -379,14 +418,21 @@ function DisplaySummary() {
                     </h2>
                     <form>
                         <div class="form-group">
+                            <label for="cancelsetbuyuser">
+                                User:
+                            </label>
+                            <input class="form-control" id="cancelsetbuyuser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
                             <label for="cancelbuystocksymbol">
                                 Stock Symbol:
                             </label>
                             <input class="form-control" id="cancelbuystocksymbol" placeholder="Enter stock symbol" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -396,6 +442,13 @@ function DisplaySummary() {
                         Set Buy Trigger:
                     </h2>
                     <form>
+                        <div class="form-group">
+                            <label for="cancelsetbuytrigger">
+                                User:
+                            </label>
+                            <input class="form-control" id="cancelsetbuytrigger" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
                         <div class="form-group">
                             <label for="setbuytrigstocksymbol">
                                 Stock Symbol:
@@ -410,8 +463,8 @@ function DisplaySummary() {
                             <input class="form-control" id="setbuytrigamount" placeholder="Enter amount" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -423,6 +476,13 @@ function DisplaySummary() {
                         Set Sell Amount:
                     </h2>
                     <form>
+                        <div class="form-group">
+                            <label for="setsellamountuser">
+                                User:
+                            </label>
+                            <input class="form-control" id="setsellamountuser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
                         <div class="form-group">
                             <label for="setsellstocksymbol">
                                 Stock Symbol:
@@ -437,8 +497,8 @@ function DisplaySummary() {
                             <input class="form-control" id="setsellamount" placeholder="Enter amount" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -449,14 +509,21 @@ function DisplaySummary() {
                     </h2>
                     <form>
                         <div class="form-group">
+                            <label for="cancelsetselluser">
+                                User:
+                            </label>
+                            <input class="form-control" id="cancelsetselluser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
                             <label for="cancelsellstocksymbol">
                                 Stock Symbol:
                             </label>
                             <input class="form-control" id="cancelsellstocksymbol" placeholder="Enter stock symbol" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -466,6 +533,13 @@ function DisplaySummary() {
                         Set Sell Trigger:
                     </h2>
                     <form>
+                        <div class="form-group">
+                            <label for="setselltriggeruser">
+                                User:
+                            </label>
+                            <input class="form-control" id="setselltriggeruser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
                         <div class="form-group">
                             <label for="setselltrigstocksymbol">
                                 Stock Symbol:
@@ -480,8 +554,8 @@ function DisplaySummary() {
                             <input class="form-control" id="setselltrigamount" placeholder="Enter amount" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                     <br/>
@@ -501,8 +575,8 @@ function DisplaySummary() {
                             <input class="form-control" id="dumplogfile" placeholder="Enter file name" type="text">
                             </input>
                         </div>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                 </div>
@@ -514,8 +588,15 @@ function DisplaySummary() {
                     </h2>
                     <br>
                     <form>
-                        <button class="btn-sm btn-dark" type="button">
-                            button
+                        <div class="form-group">
+                            <label for="displaysummaryuser">
+                                User:
+                            </label>
+                            <input class="form-control" id="displaysummaryuser" placeholder="Enter username" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-md btn-dark" type="button">
+                          Confirm
                         </button>
                     </form>
                 </div>
