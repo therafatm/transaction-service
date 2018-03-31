@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>
+            SENG468
+        </title>
+        <meta charset="utf-8">
+            <meta content="width=device-width, initial-scale=1" name="viewport">
+                <link crossorigin="anonymous" href="https://bootswatch.com/4/journal/bootstrap.min.css" rel="stylesheet">
+                    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.0/jquery.min.js">
+                    </script>
+                    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js">
+                    </script>
+                    <style type="text/css">
+                        .box {
+						    border: 4px solid #343a40;
+						    border-radius: 25px;
+						    margin: 5px;
+					  	}
+					  	.col {
+					  		padding-top: 5px;
+					  	}
+					  	.inner {
+					  		padding: 20px;
+					  	}
+					  	h1 {
+					  		font-size: 12.5rem;
+					  	}
+                    </style>
+                </link>
+            </meta>
+        </meta>
+    </head>
+    <body>
+<script type="text/javascript">
+
+function SendGet(path) {
+  var url = "/api/" + path;
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", url, true);
+
+  //Send the proper header information along with the request
+  xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+  xhr.onload = function(){
+  	console.log("Yo")
+  }
+}
+
+function Auth() {
+  var userID = document.getElementById("userid").value
+  var password = document.getElementById(pwd)
+  console.log("Auth")
+  console.log(userID)
+}
+
+function Add() {
+  var userID = document.getElementById("userid").value
+  var addamount = document.getElementById(addamount)
+  var cmd = "ADD,"+userID+","+addamount
+  SendPost(cmd)
+  console.log("Add")
+}
+
+function Quote() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(quotestocksymbol)
+  var cmd = "QUOTE,"+userID+","+stocksymbol
+  SendPost(cmd)
+  console.log("Quote")
+}
+
+function Buy() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(buystocksymbol)
+  var amnt = document.getElementById(buyamount)
+  var cmd = "BUY,"+userID+","+stocksymbol+","+amnt
+  SendPost(cmd)
+  console.log("Buy")
+}
+
+function CommitBuy() {
+  var userID = document.getElementById("userid").value
+  var cmd = "COMMIT_BUY,"+userID
+  console.log("Commit Buy")
+}
+
+function CancelBuy() {
+  var userID = document.getElementById("userid").value
+  var cmd = "CANCEL_BUY,"+userID
+  console.log("Cancel Buy")
+}
+
+function Sell() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(sellstocksymbol)
+  var amnt = document.getElementById(sellamount)
+  var cmd = "SELL,"+userID+","+stocksymbol+","+amnt
+  SendPost(cmd)
+  console.log("Sell")
+}
+
+function CommitSell() {
+  var userID = document.getElementById("userid").value
+  var cmd = "COMMIT_SELL,"+userID
+  console.log("Commit Sell")
+}
+
+function CancelSell() {
+  var userID = document.getElementById("userid").value
+  var cmd = "CANCEL_SELL,"+userID
+  console.log("Cancel Sell")
+}
+
+function SetBuyAmount() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(setbuystocksymbol)
+  var amnt = document.getElementById(setbuyamount)
+  var cmd = "SET_BUY_AMOUNT,"+userID+","+stocksymbol+","+amnt
+  SendPost(cmd)
+  console.log("Set buy amount")
+}
+
+function CancelSetBuy() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(cancelbuystocksymbol)
+  var cmd = "CANCEL_SET_BUY,"+userID+","+stocksymbol
+  SendPost(cmd)
+  console.log("Cancel set buy")
+}
+
+function SetBuyTrigger() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(setbuytrigstocksymbol)
+  var amnt = document.getElementById(setbuytrigamount)
+  var cmd = "SET_BUY_TRIGGER,"+userID+","+stocksymbol+","+amnt
+  SendPost(cmd)
+  console.log("Set buy trigger")
+}
+
+function SetSellAmount() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(setsellstocksymbol)
+  var amnt = document.getElementById(setsellamount)
+  var cmd = "SET_SELL_AMOUNT,"+userID+","+stocksymbol+","+amnt
+  SendPost(cmd)
+  console.log("Set Sell Amount")
+}
+
+function CancelSetSell() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(cancelsellstocksymbol)
+  var cmd = "CANCEL_SET_SELL,"+userID+","+stocksymbol
+  SendPost(cmd)
+  console.log("Cancel set sell")
+}
+
+function SetSellTrigger() {
+  var userID = document.getElementById("userid").value
+  var stocksymbol = document.getElementById(setselltrigstocksymbol)
+  var amnt = document.getElementById(setselltrigamount)
+  var cmd = "SET_SELL_TRIGGER,"+userID+","+stocksymbol+","+amnt
+  SendPost(cmd)
+  console.log("Set sell trigger")
+}
+
+function Dumplog() {
+  var userID = document.getElementById("userid").value
+  if(userID === "admin"){
+    SendPost("DUMPLOG,out.dump")
+    console.log("Admin Dump")
+  }
+  else
+  {
+    var fn = document.getElementById(dumplogfile)
+    var cmd = "DUMPLOG,"+userID+","+fn
+    SendPost(cmd)
+    console.log("User Dump")
+  }
+}
+
+function DisplaySummary() {
+  var userID = document.getElementById("userid").value
+  var cmd = "DISPLAY_SUMMARY,"+userID
+  console.log("Display summary")
+}
+</script>
+        <div class="container">
+        	<center><h1>Dank Stocks</h1></center>
+            <br/>
+            <div class="row rowbreak">
+                <div class="col box">
+                    <h2>
+                        Credentials:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="userid">
+                                User ID:
+                            </label>
+                            <input class="form-control" id="userid" placeholder="Enter user ID" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="pwd">
+                                Password:
+                            </label>
+                            <input class="form-control" id="pwd" placeholder="Enter password" type="password">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" onclick="Auth()" type="button">
+                            Log In
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Add:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="addamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="addamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" onclick="Add()" type="button">
+                            Submit
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Quote:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="quotestocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="quotestocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" onclick="Quote()" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col box">
+                    <h2>
+                        Buy:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="buystocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="buystocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="buyamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="buyamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" onclick="Buy()" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Commit Buy:
+                    </h2>
+                    <form>
+                        <button class="btn-sm btn-dark" onclick="CommitBuy()" type="button">
+                            button
+                        </button>
+                    </form>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Cancel Buy:
+                    </h2>
+                    <form>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col box">
+                    <h2>
+                        Sell:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="sellstocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="sellstocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="sellamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="sellamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Commit Sell:
+                    </h2>
+                    <form>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Cancel Sell:
+                    </h2>
+                    <form>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col box">
+                    <h2>
+                        Set Buy Amount:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="setbuystocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="setbuystocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="setbuyamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="setbuyamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Cancel Set Buy:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="cancelbuystocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="cancelbuystocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Set Buy Trigger:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="setbuytrigstocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="setbuytrigstocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="setbuytrigamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="setbuytrigamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col box">
+                    <h2>
+                        Set Sell Amount:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="setsellstocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="setsellstocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="setsellamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="setsellamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Cancel Set Sell:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="cancelsellstocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="cancelsellstocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+                <div class="col box">
+                    <h2>
+                        Set Sell Trigger:
+                    </h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="setselltrigstocksymbol">
+                                Stock Symbol:
+                            </label>
+                            <input class="form-control" id="setselltrigstocksymbol" placeholder="Enter stock symbol" type="text">
+                            </input>
+                        </div>
+                        <div class="form-group">
+                            <label for="setselltrigamount">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="setselltrigamount" placeholder="Enter amount" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                    <br/>
+                </div>
+            </div>
+            <div class="box">
+                <div class="inner">
+                    <h2>
+                        Dumplog:
+                    </h2>
+                    <br>
+                    <form>
+                        <div class="form-group">
+                            <label for="dumplogfile">
+                                Amount:
+                            </label>
+                            <input class="form-control" id="dumplogfile" placeholder="Enter file name" type="text">
+                            </input>
+                        </div>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <div class="box">
+                <div class="inner">
+                    <h2>
+                        Display Summary:
+                    </h2>
+                    <br>
+                    <form>
+                        <button class="btn-sm btn-dark" type="button">
+                            button
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
