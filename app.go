@@ -766,6 +766,10 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 		log.Println(l)
 		w.Header().Set("Connection", "close")
 		fn(w, r, command)
+		vars := mux.Vars(r)
+		if val, exist := vars["trans"]; exist {
+			env.logger.LogSystemEvent(command, "ROOT_LOG", "1", "2", val)
+		}
 	}
 }
 
@@ -777,8 +781,6 @@ func main() {
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
 	defer tdb.DB.Close()
 
-	tdb.DB.SetMaxOpenConns(300)
-	tdb.DB.SetMaxIdleConns(250)
 	databases := make(map[int]transdb.TransactionDataStore)
 	databases[0] = tdb
 

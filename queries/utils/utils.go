@@ -155,6 +155,7 @@ func QueryQuoteTCP(cache *redis.Client, username string, stock string) (string, 
 	// clean up the unused space in the buffer
 	respBuf = bytes.Trim(respBuf, "\x00")
 	queryString := bytes.NewBuffer(respBuf).String()
+	queryString = strings.TrimSpace(queryString)
 	return queryString, err
 }
 

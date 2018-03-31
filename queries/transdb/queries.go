@@ -1,23 +1,23 @@
 package transdb
 
 import (
-	"database/sql"
+	"github.com/jackc/pgx"
 
 	"common/logging"
 	"common/models"
 )
 
 type TransactionDB struct {
-	DB     *sql.DB
+	DB *pgx.ConnPool
 	logger logging.Logger
 }
 
-func ScanTrigger(row *sql.Row) (trig models.Trigger, err error) {
+func ScanTrigger(row *pgx.Row) (trig models.Trigger, err error) {
 	err = row.Scan(&trig.ID, &trig.Username, &trig.Symbol, &trig.Order, &trig.Amount, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	return
 }
 
-func ScanTriggerRows(rows *sql.Rows) (trig models.Trigger, err error) {
+func ScanTriggerRows(rows *pgx.Rows) (trig models.Trigger, err error) {
 	err = rows.Scan(&trig.ID, &trig.Username, &trig.Symbol, &trig.Order, &trig.Amount, &trig.TriggerPrice, &trig.Executable, &trig.Time)
 	return
 }
