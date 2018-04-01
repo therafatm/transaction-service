@@ -4,7 +4,6 @@ import (
 	"common/logging"
 	"common/models"
 	"common/utils"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +19,7 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx"
 )
 
 type Env struct {
@@ -93,7 +92,7 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 
 	user, err := tdb.QueryUser(username)
 
-	if err != nil && err == sql.ErrNoRows {
+	if err != nil && err == pgx.ErrNoRows {
 		//user no exist
 		newUser := models.User{Username: username, Money: money}
 		_, err := tdb.InsertUser(newUser)
@@ -134,7 +133,7 @@ func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command
 	tdb := env.databases[hash(username)%len(env.databases)]
 
 	_, err := tdb.QueryUser(username)
-	if err != nil && err == sql.ErrNoRows {
+	if err != nil && err == pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -165,7 +164,7 @@ func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command 
 	tdb := env.databases[hash(username)%len(env.databases)]
 
 	_, err := tdb.QueryUser(username)
-	if err != nil && err == sql.ErrNoRows {
+	if err != nil && err == pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("No such user %s exists.", username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -206,7 +205,7 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 
 	// check that user exists and has enough money
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
 			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
@@ -325,7 +324,7 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 	tdb := env.databases[hash(username)%len(env.databases)]
 
 	res, err := tdb.QueryLastReservation(username, orderType)
-	if err != nil && err == sql.ErrNoRows {
+	if err != nil && err == pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -349,7 +348,7 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 
 	// check that user exists and has enough resources
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
 			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
@@ -430,12 +429,12 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 	}
 
 	trig, err := tdb.QueryUserTrigger(username, symbol, models.BUY)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && err != pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-	if err != sql.ErrNoRows {
+	if err != pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.BUY, username, symbol)
 		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.BUY, username, symbol))
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -445,7 +444,7 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 	balance, err := tdb.QueryUserAvailableBalance(username)
 	// check that user exists and has enough money
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			errMsg := fmt.Sprintf("Failed to find user %s.", username)
 			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
@@ -502,12 +501,12 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 	}
 
 	trig, err := tdb.QueryUserTrigger(username, symbol, models.SELL)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && err != pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", models.BUY, username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-	if err != sql.ErrNoRows {
+	if err != pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("Error a %s amount already exists for %s and %s. Please cancel before proceeding.", models.SELL, username, symbol)
 		err = errors.New(fmt.Sprintf("Error duplicate %s amount for %s and %s.", models.SELL, username, symbol))
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -561,13 +560,13 @@ func (env *Env) setOrderTrigger(w http.ResponseWriter, r *http.Request, orderTyp
 	}
 
 	trig, err := tdb.QueryUserTrigger(username, symbol, orderType)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && err != pgx.ErrNoRows {
 		errMsg := fmt.Sprintf("Error querying %s triggers for %s", orderType, username)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
-	if err != nil && err != sql.ErrNoRows && trig.Executable {
+	if err != nil && err != pgx.ErrNoRows && trig.Executable {
 		errMsg := fmt.Sprintf("Error a %s trigger already exists for %s and %s. Please cancel before proceeding.", orderType, username, symbol)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
@@ -627,7 +626,7 @@ func (env *Env) cancelTrigger(w http.ResponseWriter, r *http.Request, orderType 
 
 	trig, err := tdb.QueryUserTrigger(username, symbol, orderType)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			errMsg := fmt.Sprintf("Error no %s trigger exists for %s and %s.", orderType, username, symbol)
 			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 			return
@@ -784,7 +783,7 @@ func main() {
 	databases := make(map[int]transdb.TransactionDataStore)
 	databases[0] = tdb
 
-	env := &Env{quoteCache: quoteCache, logger: logger, tdb: tdb, databases: databases}
+	env := &Env{quoteCache: quoteCache, logger: logger, tdb: databases[0], databases: databases}
 	log.SetFlags(0)
 	//log.SetOutput(ioutil.Discard)
 

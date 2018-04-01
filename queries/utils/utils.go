@@ -1,4 +1,4 @@
-package dbutils
+	package dbutils
 
 import (
 	"bytes"
@@ -60,92 +60,47 @@ func QueryQuoteHTTP(cache *redis.Client, username string, stock string) (querySt
 	return
 }
 
-// func QueryQuoteTCP(cache *redis.Client, username string, stock string) (queryString string, err error) {
-// 	port := os.Getenv("QUOTE_SERVER_PORT")
-// 	host := os.Getenv("QUOTE_SERVER_HOST")
-// 	addr := strings.Join([]string{host, port}, ":")
-// conn, err := net.DialTimeout("tcp", addr, time.Second*10)
-// 	conn.SetReadDeadline(time.Now().Add(time.Second * 10))
-
-// 	e, ok := err.(net.Error)
-// 	for ok && e.Timeout() {
-// 		conn.Close()
-// 		conn, err := net.DialTimeout("tcp", addr, time.Second*10)
-// 		conn.SetReadDeadline(time.Now().Add(time.Second))
-// 		e, ok = err.(net.Error)
-
-// 	}
-
-// 	if err != nil {
-// 		// This was an error, but not a timeout
-// 		return queryString, err
-// 	}
-
-// 	defer conn.Close()
-
-// 	msg := stock + "," + username + "\n"
-// 	conn.Write([]byte(msg))
-
-// 	buff, err := ioutil.ReadAll(conn)
-
-// 	queryString = strings.TrimSpace(string(buff))
-// 	log.Println(queryString)
-// 	return
-// }
-
 func QueryQuoteTCP(cache *redis.Client, username string, stock string) (string, error) {
 
 	port := os.Getenv("QUOTE_SERVER_PORT")
 	host := os.Getenv("QUOTE_SERVER_HOST")
 	addr := strings.Join([]string{host, port}, ":")
-	readTimeoutBase := time.Second * 2
-	backoff := time.Millisecond * 500
+	readTimeoutBase := time.Millisecond * 300
+	backoff := time.Millisecond * 0
+	maxAttempts := 9
 	msg := stock + "," + username + "\n"
 	var err error
 
 	respBuf := make([]byte, 2048)
 	attempts := 1
 
-	// Loop until read completes or deadline arrives.
 	for {
-
-		// Get a new connection
-		quoteServerConn, err := net.DialTimeout("tcp", addr, time.Second*5)
+		quoteServerConn, err := net.DialTimeout("tcp", addr, readTimeoutBase)
 		if err != nil {
 			return "", err
 		}
 
-		// Timeout if we can't send to legacy server
-		quoteServerConn.SetWriteDeadline(time.Now().Add(time.Second * 1))
-
-		// Send the message
+		quoteServerConn.SetWriteDeadline(time.Now().Add(readTimeoutBase))
 		quoteServerConn.Write([]byte(msg))
 
-		// Set the response deadline
 		timeout := readTimeoutBase + backoff
 		quoteServerConn.SetReadDeadline(time.Now().Add(timeout))
 
-		// Wait for read or timeout
 		_, err = quoteServerConn.Read(respBuf)
-
-		// close quoteserver connection
 		quoteServerConn.Close()
 
-		// If we get a response and no errors occur
 		if err == nil {
-			// Exit the loop
 			break
 		}
 
-		// set max delay to 5 seconds
-		if timeout > time.Second*5 {
-			return "Quoteserver timeout:", errors.New("")
+		if attempts > maxAttempts {
+			return "Quoteserver max attempts reached.", errors.New("Quoteserver max attempts for response")
 		}
 
 		// check for a timeout
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			// backoff linearly and try again for a quote
-			log.Println("Attempt %d timeout. Waiting for %d ms", attempts, timeout/1e6)
+			log.Println("Attempt %d timeout. Waiting for %d ms", attempts, timeout)
 		} else {
 			return "Failed to read from quoteserver", errors.New("Failed to read from quoteserve")
 		}
