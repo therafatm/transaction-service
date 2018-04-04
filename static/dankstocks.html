@@ -40,7 +40,7 @@ function GetTransactionNumber(){
     return transactionNumber-1;
 }
 
-function SendGet(path) {
+function SendGet(path, callback) {
   var url = "http://localhost:8888/api/" + path;
   console.log(url);
   var xhr = new XMLHttpRequest();
@@ -48,17 +48,30 @@ function SendGet(path) {
 
   //Send the proper header information along with the request
   xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-  xhr.onload = function(){
-  	console.log(xhr.response);
-  }
+  xhr.onload = function(){ callback(xhr.response); };
   xhr.send();
 }
 
 function Add() {
   var userID = document.getElementById("adduser").value
   var addamount = document.getElementById("addamount").value;
-  var cmd = "add/"+userID+"/"+addamount+"/"+GetTransactionNumber();
-  SendGet(cmd)
+  var cmd = "add/" + userID + "/"+ addamount + "/" + GetTransactionNumber();
+  
+  var callback = function(response){
+    response = JSON.parse(response);
+  	console.log(response);
+    if (response.error) {
+        alert(response.error);        
+    } else {
+        var msg = "Successfully added balance to user " + response.username + "!\n" ;
+        msg += "Current balance $" + (response.money/100);
+        alert(msg);
+        document.getElementById("adduser").value = "";
+        document.getElementById("addamount").value = "";
+    }
+  }
+ 
+  SendGet(cmd, callback);
   console.log("Add")
 }
 
