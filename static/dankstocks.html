@@ -20,6 +20,15 @@
             return transactionNumber - 1;
         }
 
+        function parseFloatAmount(i){
+            return Math.round(parseFloat(i) * 100);
+        }
+
+        function formatAmount(i){
+            return "$" + (i / 100).toFixed(2)
+        }
+
+
         function SendGet(path, callback) {
             var url = "http://localhost:8888/api/" + path;
             console.log(url);
@@ -34,7 +43,7 @@
 
         function Add() {
             var userID = document.getElementById("adduser").value
-            var addamount = document.getElementById("addamount").value;
+            var addamount = parseFloatAmount(document.getElementById("addamount").value);
             var cmd = "add/" + userID + "/" + addamount + "/" + GetTransactionNumber();
 
             //  defines response behavior 
@@ -45,10 +54,8 @@
                     alert(response.message);
                 } else {
                     var msg = "Successfully added balance to user " + response.username + "!\n";
-                    msg += "Current balance $" + (response.money / 100);
+                    msg += "Current balance " + formatAmount(response.money);
                     alert(msg);
-                    document.getElementById("adduser").value = "";
-                    document.getElementById("addamount").value = "";
                 }
             }
 
@@ -68,108 +75,255 @@
                 if (response.error) {
                     alert(response.message);
                 } else {
-                    var msg = "Stock " + response.symbol + " is valued at " + (response.price/100) + "!\n";
+                    var msg = "Stock " + response.symbol + " is valued at " + formatAmount(response.price) + "!\n";
                     alert(msg);
-                    document.getElementById("quoteuser").value = "";
-                    document.getElementById("quotestocksymbol").value = "";
                 }
             }
 
-            SendPost(cmd)
+            SendGet(cmd, callback)
             console.log("Quote")
         }
 
         function Buy() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(buystocksymbol)
-            var amnt = document.getElementById(buyamount)
-            var cmd = "BUY," + userID + "," + stocksymbol + "," + amnt
-            SendPost(cmd)
+            var userID = document.getElementById("buyuser").value
+            var stocksymbol = document.getElementById("buystocksymbol").value
+            var amnt = parseFloatAmount(document.getElementById("buyamount").value)
+            var cmd = "buy/" + userID + "/" + stocksymbol + "/" + amnt + "/" + GetTransactionNumber();
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully submitted buy order for " + response.shares + " of " + response.symbol + " for " + formatAmount(response.amount) + " total.";
+                    alert(msg);
+                }
+            }
+
+
+            SendGet(cmd, callback)
             console.log("Buy")
         }
 
         function CommitBuy() {
-            var userID = document.getElementById("userid").value
-            var cmd = "COMMIT_BUY," + userID
+            var userID = document.getElementById("commitbuyuser").value
+            var cmd = "commitBuy/" + userID + "/" + GetTransactionNumber();
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully committed buy of " + response.symbol + " you now have " + response.shares;
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Commit Buy")
         }
 
         function CancelBuy() {
-            var userID = document.getElementById("userid").value
-            var cmd = "CANCEL_BUY," + userID
+            var userID = document.getElementById("cancelbuyuser").value
+            var cmd = "cancelBuy/" + userID + "/" + GetTransactionNumber();
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully cancelled buy of " + response.shares + " of stock " + response.symbol;
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Cancel Buy")
         }
 
         function Sell() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(sellstocksymbol)
-            var amnt = document.getElementById(sellamount)
-            var cmd = "SELL," + userID + "," + stocksymbol + "," + amnt
-            SendPost(cmd)
+            var userID = document.getElementById("selluser").value
+            var stocksymbol = document.getElementById("sellstocksymbol").value
+            var amnt = parseFloatAmount(document.getElementById("sellamount").value)
+            var cmd = "sell/" + userID + "/" + stocksymbol + "/" + amnt + "/" + GetTransactionNumber();
+            
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully submitted sell order for " + response.shares + " of stock " + response.symbol;
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Sell")
         }
 
         function CommitSell() {
-            var userID = document.getElementById("userid").value
-            var cmd = "COMMIT_SELL," + userID
+            var userID = document.getElementById("commitselluser").value
+            var cmd = "commitSell/" + userID + "/" + GetTransactionNumber();
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully commited sell order for " +  response.symbol + " you now have " + response.shares;
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Commit Sell")
         }
 
         function CancelSell() {
-            var userID = document.getElementById("userid").value
-            var cmd = "CANCEL_SELL," + userID
+            var userID = document.getElementById("cancelselluser").value
+            var cmd = "cancelSell/" + userID +  "/" + GetTransactionNumber();
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully cancelled sell of " + response.shares + " of stock " + response.symbol;
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Cancel Sell")
         }
 
         function SetBuyAmount() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(setbuystocksymbol)
-            var amnt = document.getElementById(setbuyamount)
-            var cmd = "SET_BUY_AMOUNT," + userID + "," + stocksymbol + "," + amnt
-            SendPost(cmd)
+            var userID = document.getElementById("setbuyamountuser").value
+            var stocksymbol = document.getElementById("setbuystocksymbol").value
+            var amnt = parseFloatAmount(document.getElementById("setbuyamount").value)
+            var cmd = "setBuyAmount/" + userID + "/" + stocksymbol + "/" + amnt + "/" + GetTransactionNumber()
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully set buy for " + response.symbol + " at " + formatAmount(response.amount)
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Set buy amount")
         }
 
         function CancelSetBuy() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(cancelbuystocksymbol)
-            var cmd = "CANCEL_SET_BUY," + userID + "," + stocksymbol
-            SendPost(cmd)
+            var userID = document.getElementById("cancelsetbuyuser").value
+            var stocksymbol = document.getElementById("cancelbuystocksymbol").value
+            var cmd = "cancelSetBuy/" + userID + "/" + stocksymbol + "/" + GetTransactionNumber()
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully cancelled buy trigger for " + response.symbol + " at " + formatAmount(response.amount)
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Cancel set buy")
         }
 
         function SetBuyTrigger() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(setbuytrigstocksymbol)
-            var amnt = document.getElementById(setbuytrigamount)
-            var cmd = "SET_BUY_TRIGGER," + userID + "," + stocksymbol + "," + amnt
-            SendPost(cmd)
+            var userID = document.getElementById("buytriguser").value
+            var stocksymbol = document.getElementById("setbuytrigstocksymbol").value
+            var amnt = parseFloatAmount(document.getElementById("setbuytrigamount").value)
+            var cmd = "setBuyTrigger/" + userID + "/" + stocksymbol + "/" + amnt + "/" + GetTransactionNumber()
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully set buy trigger for " + response.symbol + " at " + formatAmount(response.triggerprice) + " for total amount of " + formatAmount(response.amount)
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Set buy trigger")
         }
 
         function SetSellAmount() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(setsellstocksymbol)
-            var amnt = document.getElementById(setsellamount)
-            var cmd = "SET_SELL_AMOUNT," + userID + "," + stocksymbol + "," + amnt
-            SendPost(cmd)
+            var userID = document.getElementById("setsellamountuser").value
+            var stocksymbol = document.getElementById("setsellstocksymbol").value
+            var amnt = parseFloatAmount(document.getElementById("setsellamount").value)
+            var cmd = "setSellAmount/" + userID + "/" + stocksymbol + "/" + amnt + "/" + GetTransactionNumber()
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully set sell for " + response.amount + " of " + response.symbol
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Set Sell Amount")
         }
 
         function CancelSetSell() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(cancelsellstocksymbol)
-            var cmd = "CANCEL_SET_SELL," + userID + "," + stocksymbol
-            SendPost(cmd)
+            var userID = document.getElementById("cancelsetselluser").value
+            var stocksymbol = document.getElementById("cancelsellstocksymbol").value
+            var cmd = "cancelSetSell/" + userID + "/" + stocksymbol + "/" + GetTransactionNumber()
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully cancelled sell trigger for " + response.amount + " of " + response.symbol
+                    alert(msg);
+                }
+            }
+
+            SendGet(cmd, callback)
             console.log("Cancel set sell")
         }
 
         function SetSellTrigger() {
-            var userID = document.getElementById("userid").value
-            var stocksymbol = document.getElementById(setselltrigstocksymbol)
-            var amnt = document.getElementById(setselltrigamount)
-            var cmd = "SET_SELL_TRIGGER," + userID + "," + stocksymbol + "," + amnt
-            SendPost(cmd)
+            var userID = document.getElementById("setselltriggeruser").value
+            var stocksymbol = document.getElementById("setselltrigstocksymbol").value
+            var amnt = parseFloatAmount(document.getElementById("setselltrigamount").value)
+            var cmd = "setSellTrigger/" + userID + "/" + stocksymbol + "/" + amnt + "/" + GetTransactionNumber()
+
+            var callback = function (response) {
+                response = JSON.parse(response);
+                console.log(response);
+                if (response.error) {
+                    alert(response.message);
+                } else {
+                    var msg = "Succesfully set sell trigger for " + response.amount + " of " + response.symbol + " at " + formatAmount(response.triggerprice)
+                    alert(msg)
+                }
+            }            
+
+            SendGet(cmd, callback)
             console.log("Set sell trigger")
         }
 
@@ -337,7 +491,7 @@
                         <input class="form-control" id="cancelbuyuser" placeholder="Enter username" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="CancelBuy()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -371,7 +525,7 @@
                         <input class="form-control" id="sellamount" placeholder="Enter amount" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="Sell()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -389,7 +543,7 @@
                         <input class="form-control" id="commitselluser" placeholder="Enter username" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="CommitSell()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -407,7 +561,7 @@
                         <input class="form-control" id="cancelselluser" placeholder="Enter username" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="CancelSell()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -441,7 +595,7 @@
                         <input class="form-control" id="setbuyamount" placeholder="Enter amount" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="SetBuyAmount()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -466,7 +620,7 @@
                         <input class="form-control" id="cancelbuystocksymbol" placeholder="Enter stock symbol" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="CancelSetBuy()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -478,10 +632,10 @@
                 </h2>
                 <form>
                     <div class="form-group">
-                        <label for="cancelsetbuytrigger">
+                        <label for="setbuytrig">
                             User:
                         </label>
-                        <input class="form-control" id="cancelsetbuytrigger" placeholder="Enter username" type="text">
+                        <input class="form-control" id="buytriguser" placeholder="Enter username" type="text">
                         </input>
                     </div>
                     <div class="form-group">
@@ -493,12 +647,12 @@
                     </div>
                     <div class="form-group">
                         <label for="setbuytrigamount">
-                            Amount:
+                            Price:
                         </label>
                         <input class="form-control" id="setbuytrigamount" placeholder="Enter amount" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="SetBuyTrigger()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -532,7 +686,7 @@
                         <input class="form-control" id="setsellamount" placeholder="Enter amount" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="SetSellAmount()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -557,7 +711,7 @@
                         <input class="form-control" id="cancelsellstocksymbol" placeholder="Enter stock symbol" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="CancelSetSell()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -584,12 +738,12 @@
                     </div>
                     <div class="form-group">
                         <label for="setselltrigamount">
-                            Amount:
+                            Price:
                         </label>
                         <input class="form-control" id="setselltrigamount" placeholder="Enter amount" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="SetSellTrigger()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -610,7 +764,7 @@
                         <input class="form-control" id="dumplogfile" placeholder="Enter file name" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="Dumplog()" type="button">
                         Confirm
                     </button>
                 </form>
@@ -630,7 +784,7 @@
                         <input class="form-control" id="displaysummaryuser" placeholder="Enter username" type="text">
                         </input>
                     </div>
-                    <button class="btn-md btn-dark" type="button">
+                    <button class="btn-md btn-dark" onclick="DisplaySummary()" type="button">
                         Confirm
                     </button>
                 </form>

@@ -235,6 +235,13 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
+	if reservation.Shares == 0 {
+		errMsg := fmt.Sprintf("Cannot buy %d amount of shares", reservation.Shares)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
 	rid, err := tdb.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
@@ -296,6 +303,13 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	reservation.Shares = sharesToSell
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
+
+	if sharesToSell == 0 {
+		errMsg := fmt.Sprintf("Cannot sell %d amount of shares", sharesToSell)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
 
 	rid, err := tdb.AddReservation(nil, reservation)
 	if err != nil {
@@ -359,16 +373,25 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 		return
 	}
 
+	if amount == 0 {
+		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", amount)
+		err = errors.New(errMsg)
+		tdb.RemoveReservation(nil, res.ID) //TODO: test
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
 	if balance < amount {
 		errMsg := fmt.Sprintf("User does not have enough resources to complete order %d < %d.", balance, amount)
 		err = errors.New("Error not enough resources.")
+		tdb.RemoveReservation(nil, res.ID) // TODO: test
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	err = tdb.CommitBuySellTransaction(res, trans)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error commiting  %s order.", orderType)
+		errMsg := fmt.Sprintf("Error commiting %s order.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
@@ -455,6 +478,13 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 		return
 	}
 
+	if buyAmount == 0  {
+		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", buyAmount)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
 	if balance < buyAmount {
 		errMsg := fmt.Sprintf("User does not have enough money to complete trigger %d < %d.", balance, buyAmount)
 		err = errors.New("Error not enough money.")
@@ -521,6 +551,13 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 	}
 
 	sellShares := sellAmount / quote
+
+	if sellShares == 0  {
+		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", sellShares)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
 
 	if availableShares < sellShares {
 		errMsg := fmt.Sprintf("User does not have enough stock to complete trigger %d < %d.", availableShares, sellShares)
