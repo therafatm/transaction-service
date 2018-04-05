@@ -714,6 +714,41 @@ func (env *Env) dumplogUser(w http.ResponseWriter, r *http.Request, command logg
 }
 
 func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command logging.Command) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	type payload struct {
+		UserCommands [] logging.UserCommandType `json:"userCommands"`
+		Balance		 int						`json:"balance"`
+		Triggers	 []	models.Trigger			`json:"triggers"`
+	}
+
+	p := payload{}
+	userCommands, err := env.logDB.GetSingleUserCommands(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to execute display summary.")
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
+	balance, err := env.tdb.QueryUserAvailableBalance(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
+	triggers, err := env.tdb.QueryAllUserTriggers(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to get trigger records for %s.", username)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
+	p.UserCommands = userCommands
+	p.Balance = balance
+	p.Triggers = triggers
+
+	env.respondWithJSON(w, http.StatusOK, p)
 	return
 }
 

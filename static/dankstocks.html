@@ -356,8 +356,14 @@
         }
 
         function DisplaySummary() {
-            var userID = document.getElementById("userid").value
-            var cmd = "DISPLAY_SUMMARY," + userID
+            var userID = document.getElementById("displaysummaryuser").value
+            var cmd = "displaySummary/" + userID + "/" + GetTransactionNumber();
+
+            var callback = function (response) {
+                console.log(response);
+            }            
+
+            SendGet(cmd, callback)
             console.log("Display summary")
         }
     </script>
@@ -808,6 +814,7 @@
                     <button class="btn-md btn-dark" onclick="DisplaySummary()" type="button">
                         Confirm
                     </button>
+                    <div id=displaysummaryvalue></div>
                 </form>
             </div>
         </div>
