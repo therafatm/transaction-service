@@ -354,13 +354,58 @@
 
             SendGet(cmd, callback)
         }
+        
+        function addbreak(root){
+            var el = document.createElement("div");
+            el.innerHTML = "&nbsp";
+            el.classList.add("break");
+            root.appendChild(el);
+        }
 
         function DisplaySummary() {
             var userID = document.getElementById("displaysummaryuser").value
             var cmd = "displaySummary/" + userID + "/" + GetTransactionNumber();
-
+            var root = document.getElementById("displaysummaryvalue")
+            root.value = "";
             var callback = function (response) {
                 console.log(response);
+                response = JSON.parse(response);
+                if (response.userCommands){
+                    for (var i = 0; i < response.userCommands.length; i++){
+                        addbreak(root)
+                        var obj = response.userCommands[i];
+                        Object.keys(obj).forEach(function (key) {
+                            var value = obj[key];
+                            if (value || value.length){
+                                var el = document.createElement("div");
+                                el.innerHTML = key + " : " + value;
+                                root.appendChild(el);
+                            }
+                        });
+                     }
+                }
+
+                if (response.balance){
+                    addbreak(root)
+                    var el = document.createElement("div");
+                    el.innerHTML = "balance := " + response.balance;
+                    root.appendChild(el);
+                }
+
+                if (response.triggers){
+                    for (var i = 0; i < response.triggers.length; i++){
+                        addbreak(root);
+                        var obj = response.triggers[i];
+                        Object.keys(obj).forEach(function (key) {
+                            var value = obj[key];
+                            if(value || value.length){
+                                var el = document.createElement("div");
+                                el.innerHTML = key + " : " + value;
+                                root.appendChild(el);
+                            }
+                        });
+                    }
+                } 
             }            
 
             SendGet(cmd, callback)
@@ -384,6 +429,12 @@
 
         h1 {
             font-size: 12.5rem;
+        }
+
+        .break {
+            margin-top: 10px;
+            margin-bottom: 10px;
+            border: 2px solid #585858;
         }
     </style>
     </link>
