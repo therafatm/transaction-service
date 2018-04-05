@@ -361,7 +361,12 @@
             el.classList.add("break");
             root.appendChild(el);
         }
-
+        
+        function ClearSummary() {
+            document.getElementById("displaysummaryvalue").innerHTML = "";
+            return;
+        }
+        
         function DisplaySummary() {
             var userID = document.getElementById("displaysummaryuser").value
             var cmd = "displaySummary/" + userID + "/" + GetTransactionNumber();
@@ -864,6 +869,9 @@
                     </div>
                     <button class="btn-md btn-dark" onclick="DisplaySummary()" type="button">
                         Confirm
+                    </button>
+                    <button class="btn-md btn-dark" onclick="ClearSummary()" type="button">
+                        Clear
                     </button>
                     <div id=displaysummaryvalue></div>
                 </form>
