@@ -27,6 +27,7 @@ type Env struct {
 	tdb        transdb.TransactionDataStore
 	quoteCache *redis.Client
 	databases  (map[int]transdb.TransactionDataStore)
+	logDB 	  	logging.LogDB
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
@@ -820,9 +821,16 @@ func main() {
 	databases := make(map[int]transdb.TransactionDataStore)
 	databases[0] = tdb
 
-	env := &Env{quoteCache: quoteCache, logger: logger, tdb: databases[0], databases: databases}
+
+	logHost := os.Getenv("LOG_DB_HOST")
+	logPort := os.Getenv("LOG_DB_PORT")
+	logDB := logging.NewLogDBConnection(logHost, logPort)
+
+	env := &Env{quoteCache: quoteCache, logger: logger, tdb: databases[0], databases: databases, logDB: logDB}
 	log.SetFlags(0)
 	//log.SetOutput(ioutil.Discard)
+
+
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
