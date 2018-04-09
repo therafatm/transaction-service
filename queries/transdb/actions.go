@@ -1,7 +1,6 @@
 package transdb
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -105,7 +104,7 @@ func (tdb *TransactionDB) AddReservation(tx *pgx.Tx, res models.Reservation) (ri
 func (tdb *TransactionDB) UpdateUserStock(tx *pgx.Tx, username string, symbol string, shares int, order models.OrderType) (err error) {
 	stock, err := tdb.QueryUserStock(username, symbol)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			query := "INSERT INTO stocks(username,symbol,shares) VALUES($1,$2,$3)"
 			_, err = tx.Exec(query, username, symbol, shares)
 			return

@@ -59,6 +59,27 @@ func (tdb *TransactionDB) QueryUserTrigger(username string, symbol string, order
 	return
 }
 
+func (tdb *TransactionDB) QueryAllUserTriggers(username string) (trigs []models.Trigger, err error) {
+	query := "SELECT tid, username, symbol, type, amount, trigger_price, executable, time FROM triggers WHERE username = $1"
+	rows, err := tdb.DB.Query(query, username)
+
+	if err != nil {
+		return
+	}
+
+	for rows.Next() {
+		trig := models.Trigger{}
+		err = rows.Scan(&trig.ID, &trig.Username, &trig.Symbol, &trig.Order, &trig.Amount, &trig.TriggerPrice, &trig.Executable, &trig.Time)
+	
+		if err != nil {
+			return
+		}
+		trigs = append(trigs, trig)
+	}
+
+	return
+}
+
 func (tdb *TransactionDB) QueryReservation(rid int64) (res models.Reservation, err error) {
 	query := "SELECT rid, username, symbol, shares, amount, type, time FROM reservations WHERE rid=$1"
 	err = tdb.DB.QueryRow(query, rid).Scan(&res.ID, &res.Username, &res.Symbol, &res.Shares, &res.Amount, &res.Order, &res.Time)

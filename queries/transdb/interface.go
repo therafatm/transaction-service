@@ -35,5 +35,6 @@ type TransactionDataStore interface {
 	CancelOrderTransaction(trig models.Trigger, trans string) (rtrig models.Trigger, err error)
 	CommitBuySellTransaction(res models.Reservation, trans string) (err error)
 	QueryAndExecuteCurrentTriggers(quoteCache *redis.Client, trans string) (rTrigs []models.Trigger, err error)
+	QueryAllUserTriggers(username string) (trigs []models.Trigger, err error)
 	ExecuteTrigger(trig models.Trigger, quote int, trans string) (rtrig models.Trigger, err error)
 }

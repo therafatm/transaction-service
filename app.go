@@ -27,6 +27,7 @@ type Env struct {
 	tdb        transdb.TransactionDataStore
 	quoteCache *redis.Client
 	databases  (map[int]transdb.TransactionDataStore)
+	logDB 	  	logging.LogDB
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
@@ -235,6 +236,13 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
 
+	if reservation.Shares == 0 {
+		errMsg := fmt.Sprintf("Cannot buy %d amount of shares", reservation.Shares)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
 	rid, err := tdb.AddReservation(nil, reservation)
 	if err != nil {
 		errMsg := "Error setting buy order."
@@ -296,6 +304,13 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	reservation.Shares = sharesToSell
 	reservation.Amount = reservation.Shares * quote
 	reservation.Time = time.Now().Unix()
+
+	if sharesToSell == 0 {
+		errMsg := fmt.Sprintf("Cannot sell %d amount of shares", sharesToSell)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
 
 	rid, err := tdb.AddReservation(nil, reservation)
 	if err != nil {
@@ -359,16 +374,25 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 		return
 	}
 
+	if amount == 0 {
+		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", amount)
+		err = errors.New(errMsg)
+		tdb.RemoveReservation(nil, res.ID) //TODO: test
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
 	if balance < amount {
 		errMsg := fmt.Sprintf("User does not have enough resources to complete order %d < %d.", balance, amount)
 		err = errors.New("Error not enough resources.")
+		tdb.RemoveReservation(nil, res.ID) // TODO: test
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
 
 	err = tdb.CommitBuySellTransaction(res, trans)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error commiting  %s order.", orderType)
+		errMsg := fmt.Sprintf("Error commiting %s order.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
@@ -455,6 +479,13 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 		return
 	}
 
+	if buyAmount == 0  {
+		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", buyAmount)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
 	if balance < buyAmount {
 		errMsg := fmt.Sprintf("User does not have enough money to complete trigger %d < %d.", balance, buyAmount)
 		err = errors.New("Error not enough money.")
@@ -521,6 +552,13 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 	}
 
 	sellShares := sellAmount / quote
+
+	if sellShares == 0  {
+		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", sellShares)
+		err = errors.New(errMsg)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
 
 	if availableShares < sellShares {
 		errMsg := fmt.Sprintf("User does not have enough stock to complete trigger %d < %d.", availableShares, sellShares)
@@ -676,6 +714,41 @@ func (env *Env) dumplogUser(w http.ResponseWriter, r *http.Request, command logg
 }
 
 func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command logging.Command) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	type payload struct {
+		UserCommands [] logging.UserCommandType `json:"userCommands"`
+		Balance		 int						`json:"balance"`
+		Triggers	 []	models.Trigger			`json:"triggers"`
+	}
+
+	p := payload{}
+	userCommands, err := env.logDB.GetSingleUserCommands(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to execute display summary.")
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
+	balance, err := env.tdb.QueryUserAvailableBalance(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
+	triggers, err := env.tdb.QueryAllUserTriggers(username)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to get trigger records for %s.", username)
+		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+		return
+	}
+
+	p.UserCommands = userCommands
+	p.Balance = balance
+	p.Triggers = triggers
+
+	env.respondWithJSON(w, http.StatusOK, p)
 	return
 }
 
@@ -783,9 +856,16 @@ func main() {
 	databases := make(map[int]transdb.TransactionDataStore)
 	databases[0] = tdb
 
-	env := &Env{quoteCache: quoteCache, logger: logger, tdb: databases[0], databases: databases}
+
+	logHost := os.Getenv("LOG_DB_HOST")
+	logPort := os.Getenv("LOG_DB_PORT")
+	logDB := logging.NewLogDBConnection(logHost, logPort)
+
+	env := &Env{quoteCache: quoteCache, logger: logger, tdb: databases[0], databases: databases, logDB: logDB}
 	log.SetFlags(0)
 	//log.SetOutput(ioutil.Discard)
+
+
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")
@@ -817,6 +897,7 @@ func main() {
 	router.HandleFunc("/api/dumplog/{filename}/{username}/{trans}", env.logHandler(env.dumplogUser, logging.DUMPLOG))
 	router.HandleFunc("/api/displaySummary/{username}/{trans}", env.logHandler(env.displaySummary, logging.DISPLAY_SUMMARY))
 
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static/")))
 	// router.HandleFunc("/api/executeTriggers/{username}/{trans}", env.logHandler(env.executeTriggerTest, ""))
 	// timeoutRouter := http.TimeoutHandler(router, time.Second*5, "Request timed out!")
 	// http.Handle("/", timeoutRouter)
