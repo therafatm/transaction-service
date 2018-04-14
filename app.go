@@ -26,11 +26,32 @@ type Env struct {
 	logger     logging.Logger
 	tdb        transdb.TransactionDataStore
 	quoteCache *redis.Client
+	txCache    *redis.Client
 	databases  (map[int]transdb.TransactionDataStore)
-	logDB 	  	logging.LogDB
+	logDB      logging.LogDB
 }
 
 type extendedHandlerFunc func(http.ResponseWriter, *http.Request, logging.Command)
+
+var counter int
+
+func txRedisSet(cache *redis.Client, key string, value int) {
+
+	err := cache.Set(key, value, 0).Err()
+	if err != nil {
+
+		return
+
+	}
+
+}
+func txRedisGet(cache *redis.Client, key string) (val string) {
+
+	counter++
+	val, _ = cache.Get(key).Result()
+	fmt.Printf("I found something ! %d ", counter)
+	return
+}
 
 func hash(s string) int {
 	h := fnv.New32a()
@@ -82,11 +103,31 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 	username := vars["username"]
 	moneyStr := vars["money"]
 	errMsg := fmt.Sprintf("Failed to add user %s", username)
+	rediskey := fmt.Sprintf("%smoney", username)
 
 	money, err := strconv.Atoi(moneyStr)
 	if err != nil {
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
+	}
+
+	valueStr := txRedisGet(env.txCache, rediskey)
+	fmt.Printf("%s", valueStr)
+	if valueStr == "" {
+
+		//user does not exist is redis cache
+		txRedisSet(env.txCache, rediskey, money)
+		env.respondWithJSON(w, http.StatusOK, username)
+
+	} else {
+		value, err := strconv.Atoi(valueStr)
+		if err != nil {
+			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+			return
+		}
+		value = value + money
+		txRedisSet(env.txCache, rediskey, value)
+		env.respondWithJSON(w, http.StatusOK, username)
 	}
 
 	tdb := env.databases[hash(username)%len(env.databases)]
@@ -123,69 +164,58 @@ func (env *Env) addUser(w http.ResponseWriter, r *http.Request, command logging.
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-
-	env.respondWithJSON(w, http.StatusOK, user)
 }
 
 func (env *Env) availableBalance(w http.ResponseWriter, r *http.Request, command logging.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 
-	tdb := env.databases[hash(username)%len(env.databases)]
+	rediskey := fmt.Sprintf("%smoney", username)
 
-	_, err := tdb.QueryUser(username)
-	if err != nil && err == pgx.ErrNoRows {
-		errMsg := fmt.Sprintf("No such user %s exists.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+	balanceStr := txRedisGet(env.txCache, rediskey)
+	if balanceStr == "" {
 		return
-	} else if err != nil {
-		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
+	} else {
+		balance, err := strconv.Atoi(balanceStr)
+		if err != nil {
+			errMsg := fmt.Sprintf("value conversion error")
+			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+			return
+		}
+		var m map[string]int
+		m = make(map[string]int)
+		m["balance"] = balance
+
+		env.respondWithJSON(w, http.StatusOK, m)
+
 	}
 
-	balance, err := tdb.QueryUserAvailableBalance(username)
-	if err != nil {
-		errMsg := fmt.Sprintf("Error getting user available balance for %s.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
-	}
-	var m map[string]int
-	m = make(map[string]int)
-	m["balance"] = balance
-
-	env.respondWithJSON(w, http.StatusOK, m)
 }
 
 func (env *Env) availableShares(w http.ResponseWriter, r *http.Request, command logging.Command) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	symbol := vars["symbol"]
+	rediskey := fmt.Sprintf("%s%s", username, symbol)
 
-	tdb := env.databases[hash(username)%len(env.databases)]
+	balanceStr := txRedisGet(env.txCache, rediskey)
+	if balanceStr == "" {
+		return
+	} else {
+		balance, err := strconv.Atoi(balanceStr)
+		if err != nil {
+			errMsg := fmt.Sprintf("value conversion error")
+			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+			return
+		}
+		var m map[string]int
+		m = make(map[string]int)
+		m["shares"] = balance
 
-	_, err := tdb.QueryUser(username)
-	if err != nil && err == pgx.ErrNoRows {
-		errMsg := fmt.Sprintf("No such user %s exists.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
-	} else if err != nil {
-		errMsg := fmt.Sprintf("Error retrieving user %s.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
+		env.respondWithJSON(w, http.StatusOK, m)
+
 	}
 
-	balance, err := tdb.QueryUserAvailableShares(username, symbol)
-	if err != nil {
-		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
-	}
-	var m map[string]int
-	m = make(map[string]int)
-	m["shares"] = balance
-
-	env.respondWithJSON(w, http.StatusOK, m)
 }
 
 func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging.Command) {
@@ -195,6 +225,9 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 	trans := vars["trans"]
 	tdb := env.databases[hash(username)%len(env.databases)]
 
+	rediskey := fmt.Sprintf("%smoney", username)
+	balanceStr := txRedisGet(env.txCache, rediskey)
+
 	buyAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
@@ -202,17 +235,9 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 		return
 	}
 
-	balance, err := tdb.QueryUserAvailableBalance(username)
-
-	// check that user exists and has enough money
+	balance, err := strconv.Atoi(balanceStr)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-			return
-		}
-
-		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
+		errMsg := fmt.Sprintf("account balance error")
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
@@ -256,6 +281,9 @@ func (env *Env) buyOrder(w http.ResponseWriter, r *http.Request, command logging
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
+	newmoney := balance - buyAmount
+
+	txRedisSet(env.txCache, rediskey, newmoney)
 
 	env.respondWithJSON(w, http.StatusOK, reserv)
 
@@ -269,7 +297,7 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	symbol := vars["symbol"]
 	trans := vars["trans"]
 	tdb := env.databases[hash(username)%len(env.databases)]
-
+	rediskey := fmt.Sprintf("%s%s", username, symbol)
 	sellAmount, err := strconv.Atoi(vars["amount"])
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid amount %s.", vars["amount"])
@@ -286,9 +314,11 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 
 	sharesToSell := sellAmount / quote
 
-	availableShares, err := tdb.QueryUserAvailableShares(username, symbol)
+	sharesStr := txRedisGet(env.txCache, rediskey)
+
+	availableShares, err := strconv.Atoi(sharesStr)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error querying available shares for %s: %s.", username, symbol)
+		errMsg := fmt.Sprintf("Invalid amount %s.", sharesStr)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
@@ -327,7 +357,9 @@ func (env *Env) sellOrder(w http.ResponseWriter, r *http.Request, command loggin
 	}
 
 	env.respondWithJSON(w, http.StatusOK, reserv)
+	rediskey = fmt.Sprintf("%ssellorder", username)
 
+	txRedisSet(env.txCache, rediskey, 1)
 	// remove reservation if not bought within 60 seconds
 	go tdb.RemoveOrder(rid, 60)
 }
@@ -336,6 +368,7 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 	var vars = mux.Vars(r)
 	username := vars["username"]
 	trans := vars["trans"]
+	rediskey := fmt.Sprintf("%smoney", username)
 	tdb := env.databases[hash(username)%len(env.databases)]
 
 	res, err := tdb.QueryLastReservation(username, orderType)
@@ -343,6 +376,7 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 		errMsg := fmt.Sprintf("No reserved %s order to commit.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
+
 	} else if err != nil {
 		errMsg := fmt.Sprintf("Error finding last %s reservation.", orderType)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -353,26 +387,29 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 	var amount int
 
 	if orderType == models.BUY {
-		balance, err = tdb.QueryUserAvailableBalance(username)
+		rediskey := fmt.Sprintf("%smoney", username)
+		balanceStr := txRedisGet(env.txCache, rediskey)
+		balance, err = strconv.Atoi(balanceStr)
+		if err != nil {
+			errMsg := fmt.Sprintf("value conversion error")
+			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+			return
+		}
 		amount = res.Amount
 
 	} else {
-		balance, err = tdb.QueryUserAvailableShares(username, res.Symbol)
+		rediskey = fmt.Sprintf("%s%s", username, res.Symbol)
+		balanceStr := txRedisGet(env.txCache, rediskey)
+		balance, err = strconv.Atoi(balanceStr)
+		if err != nil {
+			errMsg := fmt.Sprintf("value conversion error")
+			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
+			return
+		}
 		amount = res.Shares
 	}
 
 	// check that user exists and has enough resources
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-			return
-		}
-
-		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
-		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-		return
-	}
 
 	if amount == 0 {
 		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", amount)
@@ -397,9 +434,13 @@ func (env *Env) commitOrder(w http.ResponseWriter, r *http.Request, orderType mo
 		return
 	}
 
-	stock, err := tdb.QueryUserStock(res.Username, res.Symbol)
-	if err != nil {
+	rediskey = fmt.Sprintf("%s%s", username, res.Symbol)
+
+	//txRedisSet(env.txCache, rediskey, )
+	stock := txRedisGet(env.txCache, rediskey)
+	if stock == "" {
 		errMsg := "Error could not find updated stock."
+		err = errors.New(errMsg)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 	}
 
@@ -465,21 +506,16 @@ func (env *Env) setBuyAmount(w http.ResponseWriter, r *http.Request, command log
 		return
 	}
 
-	balance, err := tdb.QueryUserAvailableBalance(username)
-	// check that user exists and has enough money
+	rediskey := fmt.Sprintf("%smoney", username)
+	balanceStr := txRedisGet(env.txCache, rediskey)
+	balance, err := strconv.Atoi(balanceStr)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			errMsg := fmt.Sprintf("Failed to find user %s.", username)
-			env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
-			return
-		}
-
-		errMsg := fmt.Sprintf("Error getting user data for %s.", username)
+		errMsg := fmt.Sprintf("value conversion error")
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-
-	if buyAmount == 0  {
+	// check that user exists and has enough money
+	if buyAmount == 0 {
 		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", buyAmount)
 		err = errors.New(errMsg)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -524,9 +560,11 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 		return
 	}
 
-	availableShares, err := tdb.QueryUserAvailableShares(username, symbol)
+	rediskey := fmt.Sprintf("%s%s", username, symbol)
+	balanceStr := txRedisGet(env.txCache, rediskey)
+	availableShares, err := strconv.Atoi(balanceStr)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error getting user available shares for %s: %s.", username, symbol)
+		errMsg := fmt.Sprintf("value conversion error")
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
@@ -553,7 +591,7 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 
 	sellShares := sellAmount / quote
 
-	if sellShares == 0  {
+	if sellShares == 0 {
 		errMsg := fmt.Sprintf("User cannot complete order for %d amount.", sellShares)
 		err = errors.New(errMsg)
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
@@ -580,7 +618,8 @@ func (env *Env) setSellAmount(w http.ResponseWriter, r *http.Request, command lo
 		env.respondWithError(w, http.StatusInternalServerError, err, errMsg, command, vars)
 		return
 	}
-
+	newshares := availableShares - sellShares
+	txRedisSet(env.txCache, rediskey, newshares)
 	env.respondWithJSON(w, http.StatusOK, trig)
 }
 
@@ -717,9 +756,9 @@ func (env *Env) displaySummary(w http.ResponseWriter, r *http.Request, command l
 	vars := mux.Vars(r)
 	username := vars["username"]
 	type payload struct {
-		UserCommands [] logging.UserCommandType `json:"userCommands"`
-		Balance		 int						`json:"balance"`
-		Triggers	 []	models.Trigger			`json:"triggers"`
+		UserCommands []logging.UserCommandType `json:"userCommands"`
+		Balance      int                       `json:"balance"`
+		Triggers     []models.Trigger          `json:"triggers"`
 	}
 
 	p := payload{}
@@ -825,7 +864,7 @@ func validateURLParams(r *http.Request) (err error) {
 
 func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		env.logger.LogCommand(command, mux.Vars(r))
+		go env.logger.LogCommand(command, mux.Vars(r))
 		l := fmt.Sprintf("%s - %s%s", r.Method, r.Host, r.URL)
 		err := validateURLParams(r)
 		if err != nil {
@@ -848,6 +887,8 @@ func (env *Env) logHandler(fn extendedHandlerFunc, command logging.Command) http
 func main() {
 	logger := logging.NewLoggerConnection()
 	quoteCache := transdb.NewQuoteCacheConnection()
+	transCache := transdb.NewTransCacheConnection()
+	defer transCache.Close()
 	defer quoteCache.Close()
 
 	tdb := transdb.NewTransactionDBConnection("transdb", "5432")
@@ -856,16 +897,13 @@ func main() {
 	databases := make(map[int]transdb.TransactionDataStore)
 	databases[0] = tdb
 
-
 	logHost := os.Getenv("LOG_DB_HOST")
 	logPort := os.Getenv("LOG_DB_PORT")
 	logDB := logging.NewLogDBConnection(logHost, logPort)
 
-	env := &Env{quoteCache: quoteCache, logger: logger, tdb: databases[0], databases: databases, logDB: logDB}
+	env := &Env{quoteCache: quoteCache, txCache: transCache, logger: logger, tdb: databases[0], databases: databases, logDB: logDB}
 	log.SetFlags(0)
 	//log.SetOutput(ioutil.Discard)
-
-
 
 	router := mux.NewRouter()
 	port := os.Getenv("TRANS_PORT")

@@ -1,4 +1,4 @@
-	package dbutils
+package dbutils
 
 import (
 	"bytes"
@@ -157,7 +157,7 @@ func QueryQuotePrice(cache *redis.Client, logger logging.Logger, username string
 	queryStruct.QuoteTimestamp = split[3]
 	queryStruct.CrytpoKey = split[4]
 
-	logger.LogQuoteServ(queryStruct, trans)
+	//logger.LogQuoteServ(queryStruct, trans)
 	fmt.Println(queryStruct)
 	return
 }

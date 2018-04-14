@@ -35,6 +35,25 @@ func NewQuoteCacheConnection() (cache *redis.Client) {
 
 	return
 }
+func NewTransCacheConnection() (cache *redis.Client) {
+	host := os.Getenv("TXREDIS_HOST")
+	port := os.Getenv("TXREDIS_PORT")
+	addr := fmt.Sprintf("%s:%s", host, port)
+
+	cache = redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	_, err := cache.Ping().Result()
+	if err != nil {
+		utils.LogErr(err, "Error connecting to quote cache.")
+		panic(err)
+	}
+
+	return
+}
 
 func NewTransactionDBConnection(host string, port string) (tdb *TransactionDB) {
 	user := os.Getenv("PGUSER")
